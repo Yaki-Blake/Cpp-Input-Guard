@@ -1,7 +1,7 @@
 {
   "id": "angle-bracket-shield",
   "name": "Angle Bracket Shield",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "minAppVersion": "1.4.0",
   "description": "阻止 < 被自动配对或解析为 HTML 标签：输入即转义为 \\<，并提供一键修复已有笔记。避免未闭合标签吞掉后续内容导致排版崩塌。代码块与行内代码自动跳过.",
   "author": "Yaki Blake",
