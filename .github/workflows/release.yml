@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Read version from manifest.json
+        id: version
+        run: echo "version=$(jq -r .version manifest.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify the tag matches manifest.json
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_NAME" != "$VERSION" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match manifest.json version $VERSION" >&2
+            exit 1
+          fi
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: |
+            main.js
+            manifest.json
+
+      - name: Create or update the GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" main.js manifest.json --clobber
+          else
+            gh release create "$VERSION" \
+              --title="$VERSION" \
+              --notes "$(git log -1 --pretty=%B)" \
+              main.js manifest.json
+          fi

@@ -1,124 +1,155 @@
-# Angle Bracket Shield (尖括号保护)
+# Angle Bracket Shield
 
-零依赖的 Obsidian 插件。解决两件事：
+**English** ｜ [简体中文](README.zh-CN.md)
 
-1. **新输入** —— 在编辑模式输入 `<` 时立即拦截，不再自动配对成 `<>`，也不会被解析成 HTML 标签。
-2. **旧文档** —— 已经写在笔记里的 `vector<int>`、`greater<int>`、`set<类型, 比较器>` 之类，一键转义修复，让被"吞掉"的段落、列表、标题重新正常渲染。
+An Obsidian plugin that stops `<` from being auto-paired or parsed as an HTML tag, and repairs notes that were already broken by it.
 
-## 解决的问题
+## The problem
 
-Markdown 允许内联原生 HTML，且标签名不要求是真实元素名。所以你在笔记里写下：
+Markdown permits inline HTML, and a tag name does not have to be a real element. So in a note like this:
 
 ```markdown
-- 第一项
-- 其中 greater<int> 是一个仿函数
-* 第三项
+- first item
+- where greater<int> is a functor
+* third item
 ```
 
-`<int>` 会被渲染器当成一个**未闭合的 HTML 标签**，浏览器把它当作元素打开，之后所有同级内容都被"吸"进这个元素里 —— 表现为：后面的项目符号全部消失、变成字面 `*`、段落粘成一坨、`Tab` 缩进乱跳、实时预览和阅读模式都崩。源码字符没丢，但显示已经乱了。
+`<int>` is read as an **unclosed HTML tag**. The renderer opens an element that is never closed, so every following sibling gets swallowed into it. In practice: list bullets disappear and turn into literal `*`, paragraphs are glued together, indentation jumps around, and both Live Preview and Reading view break. The source text is intact — only the rendering is corrupted.
 
-官方论坛与帮助文档给出的解法有三种：手动补闭合标签、用反引号包成行内代码、或者**用反斜杠转义 `\<`**。本插件把第三种做法自动化 —— 新内容输入时就拦截，旧内容一键批量修复。
+The Obsidian forum and help documentation list three ways out: close the tag manually, wrap it in backticks, or **escape it with a backslash (`\<`)**. This plugin automates the third option: it intercepts new input as you type, and can repair existing notes in bulk.
 
-## 功能
+This matters most if you take notes containing C++ templates or comparisons — `vector<int>`, `greater<int>`, `set<T, Compare>`, `priority_queue<long long>` — which look exactly like HTML tags to a Markdown renderer.
 
-| 功能 | 说明 |
+## Features
+
+| Feature | Description |
 | --- | --- |
-| 输入即拦截 | 输入 `<` 时阻止 Obsidian 的自动配对，由插件自己写入字符 |
-| 默认转义 | 输入写入 `\<`，Markdown 渲染为字面 `<`，彻底绕开 HTML 解析 |
-| 代码感知 | 围栏代码块 ` ``` ` / `~~~` 与行内代码 `` ` `` 内一律不转义 |
-| 智能判定 | `a < b`、`x <= y`、`<3` 这类保持原样，只处理真正会被当标签的 |
-| 修复当前笔记 | 一键修复整篇文档（可 `Ctrl+Z` 撤销） |
-| 修复整个库 | 批量扫描并修复库内全部 Markdown 文件（带确认弹窗） |
-| 修复选区 | 只修选中范围 |
-| 打开时自动修复 | 可选开关，打开笔记即自动扫描修复（默认关闭） |
+| Intercept on input | Stops Obsidian's auto-pairing when you type `<`, and writes the character itself |
+| Escape by default | Writes `\<`, which renders as a literal `<` and bypasses HTML parsing entirely |
+| Code aware | Never touches fenced code blocks (``` / ~~~) or inline code, so `#include <iostream>` stays intact |
+| Smart detection | Leaves `a < b`, `x <= y` and `<3` alone; only escapes what would really become a tag |
+| Repair current note | Fixes the whole document in one action (undoable with `Ctrl/Cmd + Z`) |
+| Repair current file | Uses the file API, so it also works in Reading view |
+| Repair entire vault | Scans and repairs every Markdown file, with a confirmation dialog |
+| Repair selection | Fixes only the selected text |
+| Repair on open | Optional; scans and repairs a note when you open it (off by default) |
 
-## 安装
+## Installation
 
-1. 把 `angle-bracket-shield` 整个文件夹复制到你的库目录下：
+### From the community directory
+
+1. Open **Settings → Community plugins → Browse**.
+2. Search for **Angle Bracket Shield**.
+3. Select **Install**, then **Enable**.
+
+### Manually
+
+1. Download `main.js`, `manifest.json` and `versions.json` from the [latest release](../../releases/latest).
+2. Create the folder `<your vault>/.obsidian/plugins/angle-bracket-shield/` and put the three files in it:
 
    ```
-   <你的库>/.obsidian/plugins/angle-bracket-shield/
-   ```
-
-   最终目录结构：
-
-   ```
-   .obsidian/plugins/angle-bracket-shield/
+   <your vault>/.obsidian/plugins/angle-bracket-shield/
    ├── main.js
    ├── manifest.json
    └── versions.json
    ```
 
-2. 打开 Obsidian → **设置 → 第三方插件** → 点「刷新」→ 找到 **Angle Bracket Shield** → 打开开关。
-3. 若看不到，确认「受限模式」已关闭。
+3. Open **Settings → Community plugins**, select **Refresh**, then enable **Angle Bracket Shield**. If the plugin does not appear, make sure Restricted mode is off.
 
-> 纯 JavaScript 实现（`main.js` 即产物），不需要 Node、不需要构建、无第三方依赖，跨桌面与移动端可用。
+Requires Obsidian 1.4.0 or later. Pure JavaScript — `main.js` is the finished artifact — with no build step and no third-party dependencies. Works on desktop and mobile.
 
-## 修复已有文档（重要）
+## Usage
 
-输入拦截**只管新输入**，改不了已经写进文件里的字符。所以升级后请对旧笔记执行一次修复：
+### Typing protection
 
-1. 按 `Ctrl+P` 打开命令面板，输入 **修复**；
-2. 选择其中一条：
-   - **修复当前笔记：转义会被当作 HTML 的 <** —— 推荐先试这个；
-   - **修复整个库：转义所有会被当作 HTML 的 <** —— 会弹确认框，显示将扫描的文件数；
-   - **转义选区中的 <** —— 只处理选中内容。
+Nothing to configure. Once the plugin is enabled, type `<` in a note and the editor writes `\<` instead: the automatic `<>` pairing no longer happens, and the rendered result is still a plain `<`.
 
-修复是幂等的：已经转义过的 `\<` 不会重复加反斜杠；代码块和行内代码内的内容不动；`a < b` 这类不会被误伤。执行后如果发现问题，`Ctrl+Z` 即可撤销（"修复整个库"改的是文件，需在对应文件里撤销或从备份恢复）。
+Inside a fenced code block or inline code the plugin stays out of the way, so C++ headers such as `#include <iostream>` are written unchanged.
 
-## 设置项
+### Repairing existing notes
 
-**输入保护**
+Typing protection only covers new input — it cannot change characters already saved in a file. After installing, run a repair once over your older notes:
 
-- **启用输入拦截** —— 输入拦截总开关。
-- **输入即转义（写入 `\<`）** —— 默认开启。关闭后只写裸 `<`，退化为「仅阻止自动配对」。
-- **跳过围栏代码块** —— 默认开启。防止把 `#include <iostream>` 写成 `#include \<iostream>`。
-- **跳过行内代码** —— 默认开启。
+1. Open the command palette with `Ctrl/Cmd + P`.
+2. Search for **repair** and choose one of:
+   - **Repair current note** — try this one first.
+   - **Repair current file (works in Reading view)** — same result, but available in any view mode.
+   - **Repair entire vault** — asks for confirmation and reports how many files will be scanned.
+   - **Escape `<` in selection** — only the selected text.
 
-**已有文档修复**
+Repair is idempotent: an already-escaped `\<` never gains a second backslash, code blocks and inline code are left alone, and comparisons such as `a < b` are not touched. Undo with `Ctrl/Cmd + Z`. The vault-wide command writes many files at once, so undo those in each file, or restore from the `.bak-<timestamp>` backup that is created before every write.
 
-- **打开笔记时自动修复** —— 默认关闭。开启后每次打开笔记自动扫描并转义（会写入文件）。
+## Commands
 
-**其他**
+| Command | Description |
+| --- | --- |
+| Toggle: angle bracket protection | Turns input interception on or off |
+| Repair current note: escape `<` that would be treated as HTML | Repairs the note you are editing |
+| Repair current file (works in Reading view) | Repairs the active file through the file API |
+| Repair entire vault: escape every `<` that would be treated as HTML | Bulk repair across the vault |
+| Escape `<` in selection | Repairs only the selected text |
 
-- **切换时显示提示** —— 控制命令执行后是否弹右上角通知。
+## Settings
 
-## 工作原理
+**Input protection**
 
-**输入拦截：**
+| Setting | Default | Description |
+| --- | --- | --- |
+| Enable input interception | On | Master switch for interception while typing |
+| Escape on input (write `\<`) | On | When off, a bare `<` is written — interception degrades to "block auto-pairing only" |
+| Skip fenced code blocks | On | Prevents `#include <iostream>` from becoming `#include \<iostream>` |
+| Skip inline code | On | Leaves `` `...` `` spans untouched |
+
+**Repairing existing notes**
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| Repair automatically when a note is opened | Off | Scans and repairs on open; writes to the file, so it is off by default |
+
+**Other**
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| Show a notice on toggle | On | Whether to show a notification after a command runs |
+| Show a notice on load | On | Confirms the plugin loaded; useful for telling whether the plugin is active |
+
+## How it works
+
+**Input interception.** The handler is attached to `document` in the **capture phase**, so it sees the keystroke before CodeMirror 6, which binds its handler on the editor element itself.
 
 ```
-按键 <
+key <
    │
-   ├─ 不是编辑器正文？ ──────────────► 放行（交给 Obsidian 默认行为）
+   ├─ not inside the editor body? ──────────► pass through (Obsidian default)
    │
-   ├─ 在代码块 / 行内代码里？ ────────► 放行（保持代码原样）
+   ├─ inside a code block / inline code? ───► pass through (keep code verbatim)
    │
-   └─ 命中
-        ├─ preventDefault()      阻止浏览器插入字符
-        ├─ stopPropagation()     阻止 CodeMirror 收到事件 → 不再自动配对
-        └─ editor.replaceSelection('\\<')   插件自己写入转义字符
+   └─ intercepted
+        ├─ preventDefault()      stops the browser inserting the character
+        ├─ stopPropagation()     CodeMirror never sees it → no auto-pairing
+        └─ editor.replaceSelection('\\<')   the plugin writes the escaped form
 ```
 
-拦截点选在 `document` 的**捕获阶段**，比 CodeMirror 6 绑定在编辑器元素上的按键处理更早拿到事件，因此能可靠地"抢"下这次输入。
+**Document repair.** Lines are scanned one at a time, with a state machine tracking fenced code block delimiters. Non-code lines are split on backticks into ordinary and code segments, and only ordinary segments are escaped. A `<` is escaped when it is not followed by whitespace, a digit or an equals sign — so `a < b`, `x <= y` and `<3` stay clean, while `vector<int>`, `less<T>` and `<div>` are handled.
 
-**文档修复：** 逐行扫描，用状态机跟踪围栏代码块的开合；非代码行按反引号拆成「普通段 / 代码段」，只对普通段执行转义。转义条件为 `<` 后面不是空白、数字或等号 —— 这样 `a < b`、`x <= y`、`<3` 保持干净，而 `vector<int>`、`less<类型>`、`<div>` 会被处理。
+Fence detection follows CommonMark: the opening marker may not contain the fence character again, which matters for a line such as ```` ```text``` ```` appearing inside a paragraph.
 
-## 已知边界
+## Known limitations
 
-- 输入拦截只作用于**编辑模式**（源码模式 / 实时预览）；阅读模式是渲染结果，必须靠"修复已有文档"改源文件。
-- 反斜杠转义会**修改文档内容**（源码多一个 `\`，渲染结果不变）。若你确实想保留原文，改用反引号包裹或补闭合标签。
-- 若你在笔记里**故意**写原生 HTML（例如 `<div style="...">`），请用命令「切换：尖括号输入保护」先关掉保护。
-- 插件用 DOM 事件拦截而非 CodeMirror 扩展，不受 Obsidian 内核升级影响；但若将来 Obsidian 改用非 `.cm-content` 的编辑器容器，需同步调整选择器。
-- "修复整个库"会写入多个文件，建议先在单篇上试用确认效果。
+- Input interception only applies to **edit mode** (Source mode and Live Preview). Reading view shows rendered output, so pre-existing content must be fixed by repairing the source file.
+- Escaping **modifies the note source** (one extra `\` per bracket; the rendered output is unchanged). If you must keep the raw text, wrap the fragment in backticks or close the tag instead.
+- If you deliberately write raw HTML in notes (for example `<div style="...">`), turn the protection off first with the toggle command.
+- Interception uses DOM events rather than a CodeMirror extension, so it is unaffected by Obsidian's internal upgrades — but a future change away from the `.cm-content` editor container would require updating the selector.
+- The vault-wide repair writes to many files. Try it on a single note first.
 
-## 版本
+## Changelog
 
-- **1.2.1** —— 修正清单描述结尾标点（符合社区目录提交要求）并同步 `versions.json`；无功能改动。
-- **1.2.0** —— 修正围栏误判：单行内的 ```` ```文字``` ```` 曾被当成代码块开始，导致其后整篇内容被漏修（这会让"修复"看起来没生效）；新增「修复当前文件（阅读模式也可用）」命令；新增加载自检提示。
-- **1.1.0** —— 新增文档修复能力（修复当前笔记 / 整个库 / 选区）与打开时自动修复开关。
-- **1.0.0** —— 输入拦截、代码块与行内代码感知、选区转义。
+- **1.2.2** — Added a tag-triggered release workflow that publishes signed build provenance attestations for `main.js` and `manifest.json`; README is now English-first with the Chinese version in `README.zh-CN.md`.
+- **1.2.1** — Fixed the trailing punctuation of the manifest description to satisfy the community directory submission requirements, and synced `versions.json`; no functional change.
+- **1.2.0** — Fixed fence misdetection: a single-line ```` ```text``` ```` was treated as the start of a code block, which caused the rest of the document to be skipped during repair (making repair appear to do nothing). Added the "repair current file (works in Reading view)" command and a load notice.
+- **1.1.0** — Added document repair (current note / entire vault / selection) and the repair-on-open setting.
+- **1.0.0** — Input interception, fenced code block and inline code awareness, selection escaping.
 
-## 许可
+## License
 
 MIT
