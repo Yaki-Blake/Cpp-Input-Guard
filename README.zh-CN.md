@@ -50,7 +50,7 @@
 
 ### 手动安装
 
-1. 从[最新发布](https://github.com/Yaki-Blake/Angle-Bracket-Shield/releases/latest)下载 `main.js`、`manifest.json`、`versions.json`。
+1. 从[最新发布](https://github.com/Yaki-Blake/Cpp-Input-Protection/releases/latest)下载 `main.js`、`manifest.json`、`versions.json`。
 2. 复制到你的库目录下：
 
    ```
