@@ -172,6 +172,7 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 
 ## Changelog / 更新日志
 
+- **1.8.1** — plugin description rewritten in English to match the English-first README. No functional change.
 - **1.8.0** — directive list grew from 3 words to 14; a directive now matches after any whitespace, not only at a line start.
 - **1.7.0** — added the **Backups & restore** section: pick a note and a version, restore without opening the note.
 - **1.6.0** — added paste interception and the *Restore current file from the most recent backup* command.
