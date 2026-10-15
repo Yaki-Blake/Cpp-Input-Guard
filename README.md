@@ -242,4 +242,4 @@ Fence detection follows CommonMark: the opening marker may not contain the fence
 
 ## License
 
-MIT
+This project is licensed under the [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/). See [LICENSE](LICENSE) for the full text.

@@ -242,4 +242,4 @@ Obsidian 渲染的是 Markdown，而 Markdown 给很多 C++ 天天在用的符�
 
 ## 许可
 
-MIT
+本项目采用 [Mozilla Public License 2.0](https://www.mozilla.org/en-US/MPL/2.0/) 许可协议，完整文本见 [LICENSE](LICENSE)。
