@@ -1,0 +1,5 @@
+# Obsidian per-vault plugin state — local settings, never part of the release
+data.json
+
+# Backups written by the repair commands (<name>.md.bak-YYYYMMDD-HHmmss)
+*.bak-*
