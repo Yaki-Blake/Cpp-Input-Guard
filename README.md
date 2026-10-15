@@ -1,4 +1,4 @@
-# C++ Input Protection
+# cpp-input-protection
 
 An Obsidian plugin that keeps Markdown syntax out of the way of C++ notes. It escapes trigger characters as you type or paste, and can repair notes you have already written — while leaving code blocks, inline code and genuine link syntax untouched.
 
@@ -21,7 +21,7 @@ Markdown gives a second meaning to characters C++ uses constantly.
 
 1. Download `main.js`, `manifest.json` and `versions.json` from the [latest release](../../releases/latest).
 2. Put them in `<vault>/.obsidian/plugins/cpp-input-protection/`.
-3. Settings → Community plugins → Refresh → enable **C++ Input Protection**.
+3. Settings → Community plugins → Refresh → enable **cpp-input-protection**.
 
 Or add `Yaki-Blake/Cpp-Input-Protection` as a beta plugin via BRAT.
 
@@ -84,7 +84,7 @@ Repair is idempotent (`\<` never gains a second backslash), skips code, and leav
 
 <a id="zh-cn"></a>
 
-# C++ Input Protection（C++ 输入保护）
+# cpp-input-protection（C++ 输入保护）
 
 Obsidian 插件：让 Markdown 语法不再干扰 C++ 笔记。输入与粘贴时自动转义触发符号，也能一键修复已写好的旧笔记——同时放过围栏代码块、行内代码和正常的链接语法。
 
@@ -105,7 +105,7 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 
 1. 从 [最新 Release](../../releases/latest) 下载 `main.js`、`manifest.json`、`versions.json`。
 2. 放入 `<库>/.obsidian/plugins/cpp-input-protection/`。
-3. 设置 → 第三方插件 → 刷新 → 启用 **C++ Input Protection**。
+3. 设置 → 第三方插件 → 刷新 → 启用 **cpp-input-protection**。
 
 也可用 BRAT 添加 `Yaki-Blake/Cpp-Input-Protection` 作为 beta 插件。
 
@@ -172,6 +172,7 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 
 ## Changelog / 更新日志
 
+- **1.8.2** — renamed the plugin to `cpp-input-protection` so the display name matches the plugin ID and the repository; the load notice and the listing text follow.
 - **1.8.1** — plugin description rewritten in English to match the English-first README. No functional change.
 - **1.8.0** — directive list grew from 3 words to 14; a directive now matches after any whitespace, not only at a line start.
 - **1.7.0** — added the **Backups & restore** section: pick a note and a version, restore without opening the note.

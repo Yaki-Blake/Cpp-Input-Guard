@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- * C++ Input Protection（C++ 输入保护）
+ * cpp-input-protection（C++ 输入保护）
  * ---------------------------------------------------------------
  * 解决三类问题：
  *
@@ -676,7 +676,7 @@ class BracketShieldPlugin extends Plugin {
 
 		/* --- 加载自检：确认插件是否真的被 Obsidian 加载 --- */
 		if (this.settings.showLoadNotice) {
-			new Notice('C++ Input Protection 已加载，Ctrl+P 搜「修复」即可使用');
+			new Notice('cpp-input-protection 已加载，Ctrl+P 搜「修复」即可使用');
 		}
 	}
 
