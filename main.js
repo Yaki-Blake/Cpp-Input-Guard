@@ -1,7 +1,7 @@
 'use strict';
 
 /*
- * cpp-input-protection（C++ 输入保护）
+ * cpp-input-guard（C++ 输入保护）
  * ---------------------------------------------------------------
  * 解决三类问题：
  *
@@ -676,7 +676,7 @@ class BracketShieldPlugin extends Plugin {
 
 		/* --- 加载自检：确认插件是否真的被 Obsidian 加载 --- */
 		if (this.settings.showLoadNotice) {
-			new Notice('cpp-input-protection 已加载，Ctrl+P 搜「修复」即可使用');
+			new Notice('cpp-input-guard 已加载，Ctrl+P 搜「修复」即可使用');
 		}
 	}
 
@@ -965,7 +965,7 @@ class BracketShieldPlugin extends Plugin {
 			await adapter.write(target, content);
 			return target;
 		} catch (e) {
-			console.error('[cpp-input-protection] 备份失败:', notePath, e);
+			console.error('[cpp-input-guard] 备份失败:', notePath, e);
 			return null;
 		}
 	}
@@ -981,10 +981,10 @@ class BracketShieldPlugin extends Plugin {
 				try {
 					return await adapter.list('/');
 				} catch (e2) {
-					console.error('[cpp-input-protection] 列目录失败:', dir, e2);
+					console.error('[cpp-input-guard] 列目录失败:', dir, e2);
 				}
 			} else {
-				console.error('[cpp-input-protection] 列目录失败:', dir, e);
+				console.error('[cpp-input-guard] 列目录失败:', dir, e);
 			}
 			return { files: [], folders: [] };
 		}
@@ -1097,7 +1097,7 @@ class BracketShieldPlugin extends Plugin {
 			new Notice(`已还原「${notePath}」← ${backup.name}`);
 			return true;
 		} catch (e) {
-			console.error('[cpp-input-protection] 还原失败:', e);
+			console.error('[cpp-input-guard] 还原失败:', e);
 			new Notice('还原失败，详见控制台');
 			return false;
 		}
@@ -1424,7 +1424,7 @@ class BracketShieldSettingTab extends PluginSettingTab {
 		try {
 			this.backupState.groups = await this.plugin.scanBackups();
 		} catch (e) {
-			console.error('[cpp-input-protection] 扫描备份失败:', e);
+			console.error('[cpp-input-guard] 扫描备份失败:', e);
 			this.backupState.groups = [];
 		}
 		const groups = this.backupState.groups;
