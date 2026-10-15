@@ -7,8 +7,10 @@
  *   node repair-notes.js --fix      → 实际写入（每个文件先备份为 .md.bak-<时间戳>）
  *   node repair-notes.js --fix --all → 修复全部；默认只修复 TARGET 指定的单篇
  *
- * 转义规则与插件一致：< 后面不是空白/数字/等号才转义；
- * 围栏代码块与行内代码内部一律不改。
+ * 转义规则与插件一致：
+ *   尖括号 < —— 后面不是空白/数字/等号才转义；
+ *   方括号 [ —— 跳过链接 / 引用 / 双链 / 脚注，其余（数组下标、裸方括号）转义；
+ *   围栏代码块与行内代码内部一律不改。
  */
 
 const fs = require('fs');
@@ -29,6 +31,7 @@ const TARGET = TARGET_REL ? path.join(VAULT, TARGET_REL) : null;
 const SKIP_DIRS = ['.obsidian', '.trash', 'copilot'];
 
 const HTML_LIKE_LT = /(\\?)<(?![\s\d=])/g;
+const ESCAPED_LB = /(\\?)\[/g;
 
 /*
  * 判断一行是否为「围栏代码块边界」，返回 '`' / '~' / null。
@@ -44,6 +47,113 @@ function matchFence(line) {
 	return null;
 }
 
+/*
+ * `[` 是否「紧贴在标识符之后」—— 是则为 C++ 下标，绝不保护。
+ * 覆盖 arr[5]、a[0]、T[N]、m["key"]、a[i][j]。
+ */
+function isSubscriptBracket(text, i) {
+	if (i === 0) return false;
+	const prev = text.charAt(i - 1);
+	return /[A-Za-z0-9_\]\)]/.test(prev);
+}
+
+/*
+ * 扫描文本，返回需要保护（保持原样）的区间 [start, end)。
+ * 保护对象：[[双链]]、[文字](地址)、[文字][引用]、[^脚注]。
+ */
+function findProtectedSpans(text) {
+	const spans = [];
+	let i = 0;
+	const n = text.length;
+
+	while (i < n) {
+		if (text.charAt(i) !== '[') {
+			i++;
+			continue;
+		}
+		if (i > 0 && text.charAt(i - 1) === '\\') {
+			i++;
+			continue;
+		}
+		if (isSubscriptBracket(text, i)) {
+			i++;
+			continue;
+		}
+
+		// [[双链]]
+		if (text.charAt(i + 1) === '[') {
+			const close = text.indexOf(']]', i + 2);
+			if (close !== -1) {
+				spans.push([i, close + 2]);
+				i = close + 2;
+				continue;
+			}
+			i++;
+			continue;
+		}
+
+		const close = text.indexOf(']', i + 1);
+		if (close === -1) {
+			i++;
+			continue;
+		}
+		const label = text.slice(i + 1, close);
+		if (label.indexOf('\n') !== -1) {
+			i++;
+			continue;
+		}
+
+		// [^脚注]
+		if (label.charAt(0) === '^') {
+			spans.push([i, close + 1]);
+			i = close + 1;
+			continue;
+		}
+
+		const after = text.charAt(close + 1);
+
+		// [文字](地址)
+		if (after === '(') {
+			const paren = text.indexOf(')', close + 2);
+			if (paren !== -1) {
+				spans.push([i, paren + 1]);
+				i = paren + 1;
+				continue;
+			}
+		}
+
+		// [文字][引用]
+		if (after === '[') {
+			const refClose = text.indexOf(']', close + 2);
+			if (refClose !== -1) {
+				spans.push([i, refClose + 1]);
+				i = refClose + 1;
+				continue;
+			}
+		}
+
+		i++;
+	}
+
+	return spans;
+}
+
+function escapeSquareBrackets(segment, counter) {
+	const spans = findProtectedSpans(segment);
+	const inSpan = (pos) => {
+		for (const [s, e] of spans) {
+			if (pos >= s && pos < e) return true;
+		}
+		return false;
+	};
+	return segment.replace(ESCAPED_LB, (match, backslash, offset) => {
+		if (backslash) return match;
+		if (inSpan(offset)) return match;
+		counter.n++;
+		return '\\[';
+	});
+}
+
 function escapeOutsideInlineCode(line, counter) {
 	const parts = line.split(/(`+[^`]*`+)/g);
 	for (let i = 0; i < parts.length; i += 2) {
@@ -52,6 +162,7 @@ function escapeOutsideInlineCode(line, counter) {
 			counter.n++;
 			return '\\<';
 		});
+		parts[i] = escapeSquareBrackets(parts[i], counter);
 	}
 	return parts.join('');
 }

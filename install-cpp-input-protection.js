@@ -1,5 +1,5 @@
 'use strict';
-// 安装脚本：把 Angle Bracket Shield 复制进目标库并加入已启用列表
+// 安装脚本：把 C++ Input Protection 复制进目标库并加入已启用列表
 const fs = require('fs');
 const path = require('path');
 
@@ -13,8 +13,8 @@ if (!VAULT) {
 	process.exit(1);
 }
 
-const SRC = path.join(__dirname, 'angle-bracket-shield');
-const PLUGIN_ID = 'angle-bracket-shield';
+const SRC = path.join(__dirname, 'cpp-input-protection');
+const PLUGIN_ID = 'cpp-input-protection';
 const DEST = path.join(VAULT, '.obsidian', 'plugins', PLUGIN_ID);
 
 // ---- 1. 复制插件文件（存在则覆盖，不删除任何其他内容）----

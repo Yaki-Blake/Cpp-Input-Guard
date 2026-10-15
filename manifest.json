@@ -1,9 +1,9 @@
 {
-  "id": "angle-bracket-shield",
-  "name": "Angle Bracket Shield",
-  "version": "1.2.2",
+  "id": "cpp-input-protection",
+  "name": "C++ Input Protection",
+  "version": "1.3.0",
   "minAppVersion": "1.4.0",
-  "description": "阻止 < 被自动配对或解析为 HTML 标签：输入即转义为 \\<，并提供一键修复已有笔记。避免未闭合标签吞掉后续内容导致排版崩塌。代码块与行内代码自动跳过.",
+  "description": "阻止 < 与 [ 被自动配对、解析为 HTML 标签或 Markdown 链接：输入即转义为 \\< 和 \\[，并提供一键修复已有笔记。避免未闭合标签吞掉后续内容、方括号被误解析导致排版崩塌。代码块与行内代码自动跳过，正常链接与双链保留.",
   "author": "Yaki Blake",
   "isDesktopOnly": false
 }
