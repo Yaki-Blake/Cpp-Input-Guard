@@ -3,7 +3,7 @@
   "name": "C++ Input Protection",
   "version": "1.8.0",
   "minAppVersion": "1.4.0",
-  "description": "阻止 <、[、*、_、== 触发 Markdown 语法：输入与粘贴均即写成 \\< \\[ \\* \\_ \\==，并提供一键修复已有笔记（含 C/C++ 预处理指令 #include / #define / #pragma / #ifdef / #endif 等，写盘前可选自动备份）。设置面板内可直接选笔记、选备份版本还原。== 不再触发高亮，仅 === 触发；斜体与下划线斜体禁用（行首「* 加空格」仍为列表圆点）；反斜杠按字面显示；# 本身与「# 标题」「#标签」一律原样显示，只有 # 后接指令词才补反斜杠。代码块与行内代码自动跳过，正常链接与双链保留.",
+  "description": "Stops angle brackets, square brackets, asterisks, underscores, double equals and preprocessor directives from breaking your Markdown C++ notes. Escapes them as you type or paste, and repairs existing notes.",
   "author": "Yaki Blake",
   "isDesktopOnly": false
 }
