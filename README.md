@@ -172,6 +172,7 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 
 ## Changelog / 更新日志
 
+- **1.9.1** — fixed a false positive: a directive inside inline code (`` `use #include to import` ``) is no longer escaped. Repair and paste ran the directive rule on the whole line before splitting off inline code, and typing escaped it the moment the closing backtick landed.
 - **1.9.0** — renamed everything to `Cpp-Input-Guard`: the plugin ID is now `cpp-input-guard`, and the display name and the GitHub repository are `Cpp-Input-Guard`.
 - **1.8.2** — renamed the plugin to `cpp-input-protection` so the display name matches the plugin ID and the repository; the load notice and the listing text follow.
 - **1.8.1** — plugin description rewritten in English to match the English-first README. No functional change.

@@ -1,7 +1,7 @@
 {
   "id": "cpp-input-guard",
   "name": "Cpp-Input-Guard",
-  "version": "1.9.0",
+  "version": "1.9.1",
   "minAppVersion": "1.4.0",
   "description": "Stops angle brackets, square brackets, asterisks, underscores, double equals and preprocessor directives from breaking your Markdown C++ notes. Escapes them as you type or paste, and repairs existing notes.",
   "author": "Yaki Blake",

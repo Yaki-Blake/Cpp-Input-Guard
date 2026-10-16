@@ -313,16 +313,6 @@ function escapeSquareBrackets(segment, counter, preserveLinks) {
 function escapeOutsideInlineCode(line, counter, opts) {
 	const o = opts || {};
 
-	// 预处理指令：在每个命中的 # 之前补一个反斜杠，阻止其被识别为标签。
-	// 一行里可能出现多处（如说明文字「用 #include 与 #define」），一并处理。
-	// 已转义的 `\#include` 中 # 前是 \，既非行首也非空白，天然幂等。
-	if (o.hashDirectives) {
-		line = line.replace(HASH_DIRECTIVE_G, (_m, pre) => {
-			counter.n++;
-			return pre + '\\#';
-		});
-	}
-
 	const parts = line.split(/(`+[^`]*`+)/g); // 偶数索引 = 非代码段
 
 	// 行首列表圆点豁免：`* `（星号 + 空格）位于行首时保留为列表标记。
@@ -336,6 +326,20 @@ function escapeOutsideInlineCode(line, counter, opts) {
 
 	for (let i = 0; i < parts.length; i += 2) {
 		let seg = parts[i];
+
+		// 预处理指令：在每个命中的 # 之前补一个反斜杠，阻止其被识别为标签。
+		// 只在非代码段执行 —— 行内代码里的 `#include` 必须原样保留。
+		// 一行里可能出现多处（如说明文字「用 #include 与 #define」），一并处理。
+		// 段首（off === 0）只有 i === 0 时才是真正的行首；其余段的首字符紧随
+		// 反引号之后，此时 # 前不是空白，本就不构成标签，故必须放行。
+		// 已转义的 `\#include` 中 # 前是 \，既非行首也非空白，天然幂等。
+		if (o.hashDirectives) {
+			seg = seg.replace(HASH_DIRECTIVE_G, (match, pre, off) => {
+				if (off === 0 && i > 0) return match;
+				counter.n++;
+				return pre + '\\#';
+			});
+		}
 
 		seg = seg.replace(HTML_LIKE_LT, (match, backslash) => {
 			if (backslash) return match; // 已经转义过，跳过
@@ -902,7 +906,14 @@ class BracketShieldPlugin extends Plugin {
 		if (hashCh > 0 && line.charAt(hashCh - 1) === '\\') return; // 已转义
 
 		if (s.skipFencedBlocks && isInsideFencedBlock(editor, cursor.line, cursor.ch)) return;
-		if (s.skipInlineCode && isInsideInlineCode(line, cursor.ch)) return;
+		// 以 # 自身的落点判断，而不是光标落点：补上闭合反引号的一瞬间光标已在
+		// 代码之外，但 # 仍在行内代码里，只看光标会给 `用 #include 引入` 误插反斜杠。
+		if (
+			s.skipInlineCode &&
+			(isInsideInlineCode(line, hashCh) || isInsideInlineCode(line, cursor.ch))
+		) {
+			return;
+		}
 
 		this.applyingHashFix = true;
 		try {
