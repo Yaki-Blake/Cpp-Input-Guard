@@ -64,6 +64,8 @@ const DEFAULT_SETTINGS = {
 	autoRepairOnOpen: false,     // 打开笔记时自动修复（会写盘，默认关闭）
 	backupBeforeRepair: true,    // 修复写盘前先生成 .bak-时间戳 副本
 	escapeOnPaste: true,         // 粘贴进正文的内容同样按修复规则转义
+	codeBlockPadPx: 12,          // 阅读模式 pre 的上下留白（px；原生 12，实时预览不适用）
+	takeOverAllMarks: false,     // 接管全部 Markdown 标记的隐藏（替代外部 CSS 片段）
 };
 
 /* ================================================================
@@ -513,6 +515,10 @@ class BracketShieldPlugin extends Plugin {
 		await this.loadSettings();
 
 		this.addSettingTab(new BracketShieldSettingTab(this.app, this));
+
+		/* --- 外观：实时预览下隐藏围栏行，卸载时清掉 body 上的类名与变量 --- */
+		this.applyAppearance();
+		this.register(() => this.clearAppearance());
 
 		/* --- 命令 1：输入拦截开关 --- */
 		this.addCommand({
@@ -1139,6 +1145,47 @@ class BracketShieldPlugin extends Plugin {
 		);
 	}
 
+	/* ---------- 外观：实时预览下的标记与留白 ---------- */
+
+	/*
+	 * 围栏行（``` / ~~~）不在这里干预，原因已实证：
+	 * 实时预览的装饰在「编辑器有焦点、光标与代码块【不相交】」时，会把
+	 * 从起始围栏到结束围栏整体替换成一个渲染块（obsidian.asar 里
+	 * `if (W = -1, b(ue, a)) return;` 那一处，b 的选区集是
+	 * `hasFocus ? state.selection.ranges : []`）。也就是说光标一离开，
+	 * 围栏行连 DOM 都不存在；光标一进入，整块又还原成源码。
+	 *
+	 * 由此推论：任何按行压缩围栏的规则，作用区间恰好只剩「正在编辑这一块」，
+	 * 而这正是最需要看清 ```cpp 语言标识的时候。要压就得连语言标识一起遮，
+	 * 代价大于收益，故不提供该开关——光标在块内看源码，离开即渲染，交给内核。
+	 *
+	 * 其余两项用 body 类名 + CSS 变量控制，改设置不必重写样式表，关掉即时复原。
+	 */
+	applyAppearance() {
+		const body = document.body;
+		const s = this.settings;
+
+		body.classList.toggle('cpp-guard-all-marks', !!s.takeOverAllMarks);
+
+		/*
+		 * 渲染态代码块的上下留白。官方规则是
+		 *   .markdown-rendered pre { padding: var(--size-4-3) var(--size-4-4); min-height: 38px }
+		 * 上下各 12px，另有一条 38px 的最小高度下限——单行代码块即使没有内边距
+		 * 也会被撑到 38px，所以只压 padding 看不到效果，必须同时放开 min-height。
+		 * 这里直接用像素值而非比例：一半 padding 并不等于一半高度，像素值才可控。
+		 */
+		const padRaw = Number(s.codeBlockPadPx);
+		const pad = Number.isFinite(padRaw) ? Math.min(24, Math.max(0, padRaw)) : 12;
+		body.classList.toggle('cpp-guard-tight-code', pad < 12); // 12 = 原生值，此时不挂类名
+		body.style.setProperty('--cpp-guard-code-pad', pad + 'px');
+	}
+
+	clearAppearance() {
+		const body = document.body;
+		body.classList.remove('cpp-guard-all-marks', 'cpp-guard-tight-code');
+		body.style.removeProperty('--cpp-guard-code-pad');
+	}
+
 	/* ---------- 设置读写 ---------- */
 
 	async loadSettings() {
@@ -1381,6 +1428,52 @@ class BracketShieldSettingTab extends PluginSettingTab {
 
 		const restoreWrap = containerEl.createDiv();
 		this.initRestoreSection(restoreWrap);
+
+		new Setting(containerEl).setName('外观').setHeading();
+
+		containerEl.createEl('p', {
+			cls: 'setting-item-description',
+			text:
+				'围栏行（``` / ~~~）不提供「隐藏」开关：实时预览在光标离开代码块时本来就把整块渲染掉，' +
+				'围栏行连 DOM 都不存在；光标在块内时则整块还原成源码。' +
+				'所以在块内编辑时一定能看见完整的 ``` 与语言标识。',
+		});
+
+		new Setting(containerEl)
+			.setName('阅读模式代码块留白（px）')
+			.setDesc(
+				'只影响阅读模式与导出（那些场景下代码块是 <pre>，Obsidian 原生上下各 12px 且有 38px 最小高度）。' +
+					'实时预览里的代码块不是 <pre> 结构，此项对它无效。' +
+					'12 = 原生，2 ≈ 一半，0 = 贴死。默认 12（即不干预）。'
+			)
+			.addText((t) => {
+				t.inputEl.type = 'number';
+				t.inputEl.min = '0';
+				t.inputEl.max = '24';
+				t.inputEl.step = '1';
+				t.setValue(String(this.plugin.settings.codeBlockPadPx));
+				t.onChange(async (v) => {
+					const n = Number(v);
+					if (!Number.isFinite(n)) return; // 输入中途的空串之类先放过
+					this.plugin.settings.codeBlockPadPx = Math.min(24, Math.max(0, n));
+					await this.plugin.saveSettings();
+					this.plugin.applyAppearance();
+				});
+			});
+
+		new Setting(containerEl)
+			.setName('接管全部 Markdown 标记的隐藏')
+			.setDesc(
+				'等价于常见的「实时预览隐藏标记」CSS 片段：光标所在行的 **、*、~~、` 等标记也一并隐藏。' +
+					'开启后原有的此类片段可以停用，避免两套规则互相干扰。列表圆点与标题 # 不在接管范围内。'
+			)
+			.addToggle((t) =>
+				t.setValue(this.plugin.settings.takeOverAllMarks).onChange(async (v) => {
+					this.plugin.settings.takeOverAllMarks = v;
+					await this.plugin.saveSettings();
+					this.plugin.applyAppearance();
+				})
+			);
 
 		new Setting(containerEl).setName('其他').setHeading();
 

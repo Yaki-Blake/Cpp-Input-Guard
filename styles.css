@@ -1,0 +1,71 @@
+/* ==========================================================================
+   Cpp-Input-Guard —— 实时预览外观
+   --------------------------------------------------------------------------
+   本文件只做「显示」，不动任何笔记内容。所有规则都由 body 上的开关控制，
+   开关与变量由 main.js 的 applyAppearance() 写入：
+     body.cpp-guard-all-marks     接管全部 Markdown 标记的隐藏
+     body.cpp-guard-tight-code    压缩阅读模式代码块留白
+     --cpp-guard-code-pad         阅读模式 pre 的上下留白（默认 12px）
+   在设置里关掉对应开关即恢复 Obsidian 原生表现，无需卸载插件。
+
+   ── 为什么没有「隐藏围栏行」这一节 ──
+   实时预览把围栏代码块（从起始 ``` 到结束 ```）当作**整块**处理：
+   编辑器有焦点、光标与块不相交时，内核用一个 block widget 整体替换这段区间
+   （obsidian.asar：「HyperMD-codeblock-end」分支里 `if (W = -1, b(ue, a)) return;`，
+   而 b 的选区集是 `hasFocus ? state.selection.ranges : []`）；光标进入块内，
+   替换撤销，整块还原成逐行源码。结论：
+     · 光标不在块内 → 围栏行不在 DOM 里，任何 CSS 都无从作用；
+     · 光标在块内   → 源码本来完整可见，此时按行压缩围栏只会把
+                      ```cpp 里的语言标识一起遮掉。
+   所以「隐藏围栏行」在任何状态下都是负收益，已移除。
+
+   ── 其余实测事实（Obsidian 1.14.5 / Electron 43 / Chrome 150，2026-10-26）──
+   · 围栏行只有行级类 HyperMD-codeblock-begin / -end，反引号与语言标识
+     是同一段无区分的文本，CSS 无法只遮其一。
+   · 该行上没有 hmd-inactive-line 类；「光标所在行」的唯一标记是 cm-active，
+     判断条件写 :not(.hmd-inactive-line) 会永远不命中。
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. 可选：接管全部 Markdown 标记
+   --------------------------------------------------------------------------
+   与社区常见的「实时预览隐藏标记」片段等价。刻意不接管的三类：
+     · 标题 #（cm-formatting-header）—— 遮住后无法边看边改标题；
+     · 列表圆点（cm-formatting-list）—— 光标行 Obsidian 本就不画圆点，
+       再遮 * / - 会让该行什么都不显示；
+     · 代码块围栏行（.HyperMD-codeblock-begin / -end）—— 围栏上的 ``` 复用
+       span.cm-formatting-code（与行内代码同一套类名），不排除的话光标在代码
+       正文行时反引号会被压成 0 字号、只剩语言标识，看起来像围栏凭空消失。
+       排除整行后，进块内编辑时起始 / 结束围栏与语言标识始终是完整源码。
+   1.14.5 同样没有 hmd-inactive-line，条件写 :not(.cm-active)。
+   -------------------------------------------------------------------------- */
+
+body.cpp-guard-all-marks .markdown-source-view.mod-cm6.is-live-preview .cm-line:not(.cm-active):not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) span.cm-formatting-strong,
+body.cpp-guard-all-marks .markdown-source-view.mod-cm6.is-live-preview .cm-line:not(.cm-active):not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) span.cm-formatting-em,
+body.cpp-guard-all-marks .markdown-source-view.mod-cm6.is-live-preview .cm-line:not(.cm-active):not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) span.cm-formatting-strikethrough,
+body.cpp-guard-all-marks .markdown-source-view.mod-cm6.is-live-preview .cm-line:not(.cm-active):not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) span.cm-formatting-code,
+body.cpp-guard-all-marks .markdown-source-view.mod-cm6.is-live-preview .cm-line:not(.cm-active):not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) span.cm-formatting-quote,
+body.cpp-guard-all-marks .markdown-source-view.mod-cm6.is-live-preview .cm-line:not(.cm-active):not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) span.cm-formatting-task,
+body.cpp-guard-all-marks .markdown-source-view.mod-cm6.is-live-preview .cm-line:not(.cm-active):not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) span.cm-formatting-link,
+body.cpp-guard-all-marks .markdown-source-view.mod-cm6.is-live-preview .cm-line:not(.cm-active):not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) span.cm-formatting-link-string,
+body.cpp-guard-all-marks .markdown-source-view.mod-cm6.is-live-preview .cm-line:not(.cm-active):not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) span.cm-formatting-image,
+body.cpp-guard-all-marks .markdown-source-view.mod-cm6.is-live-preview .cm-line:not(.cm-active):not(.HyperMD-codeblock-begin):not(.HyperMD-codeblock-end) span.cm-hmd-escape-backslash {
+  font-size: 0 !important;
+  color: transparent !important;
+  letter-spacing: -1px !important;
+}
+
+/* --------------------------------------------------------------------------
+   2. 阅读模式（及导出）代码块的上下留白
+   --------------------------------------------------------------------------
+   只有阅读模式才是 <pre> 结构，官方规则：
+     .markdown-rendered pre { padding: var(--size-4-3) var(--size-4-4); min-height: 38px }
+   即上下各 12px，另有一条 38px 的下限——只压 padding 而不放开 min-height，
+   块高仍被 38px 挡住。横向 padding 保持官方值，避免代码行左右贴边。
+   实时预览里不存在 <pre>，本段对它无任何作用。
+   -------------------------------------------------------------------------- */
+
+body.cpp-guard-tight-code .markdown-rendered pre {
+  padding-block: var(--cpp-guard-code-pad, 12px) !important;
+  min-height: 0 !important;
+}

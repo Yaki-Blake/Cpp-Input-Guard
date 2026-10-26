@@ -3,3 +3,6 @@ data.json
 
 # Backups written by the repair commands (<name>.md.bak-YYYYMMDD-HHmmss)
 *.bak-*
+
+# WorkBuddy workspace data (agent memory / session state), not part of the plugin
+.workbuddy/
