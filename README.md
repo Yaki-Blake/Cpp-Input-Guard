@@ -32,12 +32,12 @@ Requires Obsidian 1.4.0+. Plain JavaScript — `main.js` is the finished artifac
 | You type | Editor writes | Notes |
 | --- | --- | --- |
 | `<` | `\<` | `a < b`, `x <= y`, `<3` are left alone |
-| `[` | `\[` | keeps `[text](url)`, `[[wikilink]]`, `[^footnote]`; escapes subscripts such as `arr[5]` |
-| `*` | `\*` | a line-leading `* ` is restored, so bullet lists still work |
-| `_` | `\_` | only at a word boundary; `my_var_name` is untouched |
+| `[` | `\[` | keeps `[text](url)`, `[[wikilink]]`, `[^footnote]`, and GFM task boxes `- [ ]`; escapes subscripts such as `arr[5]` |
+| `*` | `\*` | no space after it → escaped, so `int* p`, `int** pp`, `char* s`, `a*b*c`, `O(n*n!)` never become emphasis. A line-leading `* ` (star **plus space**) is treated as a list bullet and left alone |
+| `_` | `\_` | escaped only where it is *not* part of an identifier; `my_var`, `_private`, `__init__`, `MAX_SIZE` stay untouched |
 | `\` | `\\` | the backslash becomes literal instead of an escape character |
 | `==` | `\==` | `===` still highlights, so deliberate highlighting works |
-| `#include` … | `\#include` … | 14 directives only; `# Heading` and `#tag` are untouched |
+| `#` | `\#` | **decided by the character after it.** `# Heading`, `## Heading`, `###` — a space or end of line follows, so it stays a heading. `#include`, `#define`, `#pragma once`, `#tag` — a non-space follows, so it is escaped to keep it out of the tag pane |
 
 Nothing inside fenced code blocks (``` / ~~~) or inline code is touched, and pasted text goes through the same rules.
 
@@ -56,6 +56,8 @@ Open the command palette (`Ctrl/Cmd + P`) and search for **repair**:
 | Escape Markdown trigger characters in selection | selection only |
 | Restore current file from the most recent backup | rolls back to the newest backup |
 | Restore a note from backup (open settings) | jumps to the restore panel |
+| Clean up over-escaping (current note) | restores `\#` → `#`, `\*\*bold\*\*` → `**bold**`, `- \[ ]` → `- [ ]`, paired `\==` → `==` in the note you are editing |
+| Clean up over-escaping (entire vault) | same, vault-wide, with a confirmation dialog and a backup first |
 
 Repair is idempotent (`\<` never gains a second backslash), skips code, and leaves `a < b` alone. A `<name>.md.bak-<timestamp>` copy is written before every repair.
 
@@ -63,22 +65,20 @@ Repair is idempotent (`\<` never gains a second backslash), skips code, and leav
 
 **Input protection** — master switch, `<`, `[`, preserve links, skip fenced blocks, skip inline code, escape on paste. All on by default.
 
-**Markdown suppression** — directives are not tags, disable italics (keep list bullets), disable underscore italics, highlight only on `===`, backslash is literal. All on by default.
+**Markdown suppression** — directives are not tags, disable italics (paired emphasis kept), disable underscore italics, highlight only on `===`, backslash is literal. All on by default.
 
 **Repair** — back up before repair (on), repair on open (off, because it writes to disk).
 
 **Backups & restore** — pick a note → pick a version → Restore / Refresh.
-
-**Appearance** — reading-mode code block padding (12 = native, do not touch) and taking over hiding of all Markdown marks. Fence lines are deliberately not touched: see *Limitations*.
 
 **Other** — notice on load, notice on toggle (both on).
 
 ## Limitations
 
 - Edit mode only (Source mode and Live Preview); existing notes need a repair run.
-- In Live Preview the fence lines are visible exactly while the cursor is inside the block; once it leaves — or the editor loses focus — Obsidian replaces the whole block, fences included, with a rendered code block. That decision lives in core CM6 decorations (`selection ∩ block` evaluated only while focused), so no plugin can override it per block, and the plugin therefore does not try to hide or reveal fence lines itself.
 - Escaping rewrites the note source — one extra `\` per character. The rendered result is unchanged, but the raw text is less readable.
-- With *Backslash is literal* on, a manually typed `\<` no longer escapes — write the backslash twice, or turn the setting off.
+- Restoring a *Backslash is literal* setup: with that option on, a manually typed `\<` no longer escapes — write the backslash twice, or turn the setting off.
+- Paired emphasis is detected per line with a look-alike of CommonMark's flanking rule, not Obsidian's own parser. Exotic nesting (`*a **b* c**`) may therefore be escaped where Obsidian would have rendered it. Escape it back, or turn *Disable italics* off.
 - YAML frontmatter is not skipped: inline `tags: [C++, STL]` gets escaped and breaks the property. Keep frontmatter tags in block style.
 - Vault-wide repair scans every Markdown file, including any backup folder you keep inside the vault.
 - Writing raw HTML such as `<div style="...">`? Turn the protection off first.
@@ -119,12 +119,12 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 | 你输入 | 编辑器写入 | 说明 |
 | --- | --- | --- |
 | `<` | `\<` | `a < b`、`x <= y`、`<3` 一律放行 |
-| `[` | `\[` | 保留 `[文字](地址)`、`[[双链]]`、`[^脚注]`；转义 `arr[5]` 这类下标 |
-| `*` | `\*` | 行首「`*` + 空格」会还原，列表圆点仍可用 |
-| `_` | `\_` | 仅词边界；`my_var_name` 不动 |
+| `[` | `\[` | 保留 `[文字](地址)`、`[[双链]]`、`[^脚注]` 与 GFM 待办框 `- [ ]`；转义 `arr[5]` 这类下标 |
+| `*` | `\*` | **后面没空格就转义**——`int* p`、`int** pp`、`char* s`、`a*b*c`、`O(n*n!)` 里的星号永远不会变成斜体 / 粗体。行首「`*` + 空格」是列表圆点，原样保留 |
+| `_` | `\_` | 只在**不属于标识符**时转义；`my_var`、`_private`、`__init__`、`MAX_SIZE` 原样保留 |
 | `\` | `\\` | 反斜杠按字面显示，不再吞字符 |
 | `==` | `\==` | `===` 仍触发高亮，想高亮时照常用 |
-| `#include` 等 | `\#include` | 仅 14 个预处理指令词；`# 标题`、`#tag` 不受影响 |
+| `#` | `\#` | **由后面那个字符决定**：`# 标题`、`## 标题`、`###` 后面是空格或行尾 → 保持为标题；`#include`、`#define`、`#pragma once`、`#标签` 后面不是空格 → 转义，避免被收进标签库 |
 
 围栏代码块（``` / ~~~）与行内代码内一律不处理；粘贴进正文的内容走同一套规则。
 
@@ -143,6 +143,8 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 | 转义选区中的 Markdown 触发符号 | 只处理选中文字 |
 | 从最近备份还原当前文件 | 回滚到最新备份 |
 | 选择笔记还原（打开设置） | 跳到还原面板 |
+| 清理过度转义：还原被改坏强调 / 标题 / 待办的本笔记 | 把 `\#`→`#`、`\*\*粗体\*\*`→`**粗体**`、`- \[ ]`→`- [ ]`、成对 `\==`→`==` 在本笔记里还原 |
+| 清理过度转义：还原整个库 | 同上，整库执行，带确认弹窗且先备份 |
 
 修复是幂等的（`\<` 不会变成 `\\<`），跳过代码块，`a < b` 不受影响。每次修复写盘前，先生成 `<原名>.md.bak-时间戳` 副本。
 
@@ -156,16 +158,14 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 
 **备份与还原** —— 选笔记 → 选版本 → 还原 / 刷新。
 
-**外观** —— 阅读模式代码块留白（12 = 原生，别动）、接管全部 Markdown 标记的隐藏。围栏行刻意不碰，理由见「限制」。
-
 **其他** —— 加载时提示、命令执行后提示（均开）。
 
 ## 限制
 
 - 只作用于编辑模式（源码模式与实时预览）；老内容需跑一次修复。
-- 实时预览里围栏行的可见性完全跟着光标走：光标在代码块内，整块以源码显示（起始围栏、代码、结束围栏三行齐全）；光标离开——或编辑器失焦（点侧边栏、设置面板、另一个窗格）——Obsidian 把整块连围栏一起替换成渲染后的代码块。该判断在内核的 CM6 装饰里（「有焦点时选区与代码块是否相交」），插件无法按块覆盖，因此本插件也不去隐藏或还原围栏行。
 - 转义会改写笔记源码——每个字符多一个 `\`。渲染结果不变，但原文可读性下降。
 - 「反斜杠字面化」开启时，手动打的 `\<` 会失效——写两个反斜杠，或临时关掉该设置。
+- 成对强调是按行用「近似 CommonMark 左右侧翼规则」判定的，不是 Obsidian 自己的解析器。像 `*a **b* c**` 这种跨界嵌套，可能被转义掉而 Obsidian 本可正常渲染；把它手动改回来，或关掉「禁用斜体」。
 - YAML frontmatter 不跳过：行内写法 `tags: [C++, STL]` 会被转义导致属性损坏，请用块状写法。
 - 整库修复会扫描库里每一个 Markdown 文件，包括你放在库内的备份目录。
 - 若你要特意写裸 HTML（如 `<div style="...">`），先用切换命令关掉保护。
@@ -178,9 +178,10 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 
 ## Changelog / 更新日志
 
-- **1.10.2** — the mark-hiding rules no longer touch fenced code block lines. The backticks on a fence row reuse `span.cm-formatting-code` (the same class as inline code), so `font-size: 0` collapsed ` ``` ` as soon as the cursor moved onto a code line, leaving only the language tag — the fence looked like it had vanished. Selectors now exclude `.HyperMD-codeblock-begin` / `.HyperMD-codeblock-end`, so the opening fence, the code and the closing fence are always complete source while you edit the block.
-- **1.10.1** — removed the *hide fence lines* option (and its height setting). It compressed ` ``` ` rows to 5px whenever the cursor was not on that very line, which is exactly the case when you are editing the block — so the language tag (`cpp`) disappeared while you were working in it. Live Preview already handles the other direction on its own: cursor inside the block, everything shows as source; cursor outside, the whole block is rendered. Verified against `obsidian.asar`: the block replacement is skipped only when `selection ∩ block` and the editor has focus.
-- **1.10.0** — appearance section: reading-mode code block padding, and an optional takeover of hiding all Markdown marks (bold / italic / strikethrough / inline code / quote / task / link), with a bundled `styles.css` toggled via `body` classes.
+- **1.13.0** — one rule for both markers: **look at the character after them.** `#` followed by a space (or end of line) is a heading and stays untouched — that is why `# 标题` renders at full size again. `#` followed by anything else is escaped, so `#include`, `#define`, `#pragma once` and `#tag` never reach the tag pane. Likewise `*` followed by a non-space is always escaped (`int** pp`, `a*b*c`), while a line-leading `* ` is a list bullet. Also fixed the directive check that only ever inspected the first `#` run on a line, so `## #include 详解` was missed.
+- **1.12.1** — restored asterisk escaping everywhere: 1.11.0 had let *paired* asterisks through, which broke `int** pp` and `char** argv`. Underscores are escaped only where they are not part of an identifier, so `_private` and `__init__` survive.
+- **1.12.0** — added the opposite direction: **Clean up over-escaping**, for notes earlier versions wrote into. It restores `\# Heading` → `# Heading`, `\*\*bold\*\*` → `**bold**`, `- \[ ]` → `- [ ]` and paired `\==` → `==`, per note or per vault, with a backup first. It is deliberately conservative: literal backslashes that are meant as C++ — `ListNode\* p`, `O(n\*n!)`, `minp\[p \* i]`, a lone `y % 4 \== 0` — are left exactly as they are.
+- **1.11.0** — kept GFM task boxes `- [ ]` / `- [x]` as real checkboxes instead of turning them into `- \[ ]`.
 - **1.9.1** — fixed a false positive: a directive inside inline code (`` `use #include to import` ``) is no longer escaped. Repair and paste ran the directive rule on the whole line before splitting off inline code, and typing escaped it the moment the closing backtick landed.
 - **1.9.0** — renamed everything to `Cpp-Input-Guard`: the plugin ID is now `cpp-input-guard`, and the display name and the GitHub repository are `Cpp-Input-Guard`.
 - **1.8.2** — renamed the plugin to `cpp-input-protection` so the display name matches the plugin ID and the repository; the load notice and the listing text follow.
