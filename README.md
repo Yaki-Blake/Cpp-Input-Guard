@@ -37,11 +37,21 @@ Requires Obsidian 1.4.0+. Plain JavaScript — `main.js` is the finished artifac
 | `_` | `\_` | escaped only where it is *not* part of an identifier; `my_var`, `_private`, `__init__`, `MAX_SIZE` stay untouched |
 | `\` | `\\` | the backslash becomes literal instead of an escape character |
 | `==` | `\==` | `===` still highlights, so deliberate highlighting works |
-| `#` | `\#` | **decided by the character after it.** `# Heading`, `## Heading`, `###` — a space or end of line follows, so it stays a heading. `#include`, `#define`, `#pragma once`, `#tag` — a non-space follows, so it is escaped to keep it out of the tag pane |
+| `#` | `\#` | **only the 14 preprocessor directives.** `#include`, `#define`, `#pragma once` get escaped so they never reach the tag pane. `# Heading` stays a heading, and `#popcount` / `#笔记` stay **real clickable tags** — write them, keep them, delete them, your call. Two more ways to opt out: a whitelist field, and *Release the `#word` at the cursor* |
 
-Nothing inside fenced code blocks (``` / ~~~) or inline code is touched, and pasted text goes through the same rules.
+Nothing inside fenced code blocks (``` / ~~~), inline code or YAML frontmatter is touched, and pasted text goes through the same rules.
 
 **The 14 directives:** `include` `import` `define` `undef` `pragma` `line` `error` `warning` `ifdef` `ifndef` `endif` `elif` `else` `if`
+
+### Making `#` yours again
+
+1.13 escaped *every* `#` that wasn't followed by a space, which also swallowed genuine tags, and the change handler re-added the backslash on the next keystroke — you could not delete it. 1.14 fixes both:
+
+- **Scope dropdown** (default *Directives only*): `Do not escape` / `Directives only` / `Everything (legacy)`.
+- **Whitelist** — one word per line (`builtin_popcountll`, `popcount`, …); those words are never escaped in any scope.
+- **Manual deletion sticks** — if you turn `\#popcount` back into `#popcount` yourself, the plugin learns that word and leaves it alone from then on. Toggle *Respect manually removed backslashes* off to get the old re-escaping.
+- **Command** *Release the `#word` at the cursor* — removes the backslash right there and whitelists the word in one step.
+- **Clean up over-escaping** now also converts `\#popcount` → `#popcount` (directives stay escaped), and repairs broken frontmatter such as `tags: \[C++, STL]`.
 
 ## Commands
 
@@ -56,8 +66,9 @@ Open the command palette (`Ctrl/Cmd + P`) and search for **repair**:
 | Escape Markdown trigger characters in selection | selection only |
 | Restore current file from the most recent backup | rolls back to the newest backup |
 | Restore a note from backup (open settings) | jumps to the restore panel |
-| Clean up over-escaping (current note) | restores `\#` → `#`, `\*\*bold\*\*` → `**bold**`, `- \[ ]` → `- [ ]`, paired `\==` → `==` in the note you are editing |
+| Clean up over-escaping (current note) | restores `\#` → `#` (tags only, directives stay), `\*\*bold\*\*` → `**bold**`, `- \[ ]` → `- [ ]`, paired `\==` → `==`, and broken frontmatter such as `tags: \[C++, STL]` |
 | Clean up over-escaping (entire vault) | same, vault-wide, with a confirmation dialog and a backup first |
+| Release the `#word` at the cursor | removes the backslash on the spot and whitelists that word permanently |
 
 Repair is idempotent (`\<` never gains a second backslash), skips code, and leaves `a < b` alone. A `<name>.md.bak-<timestamp>` copy is written before every repair.
 
@@ -65,7 +76,7 @@ Repair is idempotent (`\<` never gains a second backslash), skips code, and leav
 
 **Input protection** — master switch, `<`, `[`, preserve links, skip fenced blocks, skip inline code, escape on paste. All on by default.
 
-**Markdown suppression** — directives are not tags, disable italics (paired emphasis kept), disable underscore italics, highlight only on `===`, backslash is literal. All on by default.
+**Markdown suppression** — enable hash handling, hash scope (do not escape / directives only / everything), hash whitelist, respect manually removed backslashes, released words (with a *Clear* button), disable italics (paired emphasis kept), disable underscore italics, highlight only on `===`, backslash is literal. Defaults: scope = *Directives only*, the rest on.
 
 **Repair** — back up before repair (on), repair on open (off, because it writes to disk).
 
@@ -79,7 +90,7 @@ Repair is idempotent (`\<` never gains a second backslash), skips code, and leav
 - Escaping rewrites the note source — one extra `\` per character. The rendered result is unchanged, but the raw text is less readable.
 - Restoring a *Backslash is literal* setup: with that option on, a manually typed `\<` no longer escapes — write the backslash twice, or turn the setting off.
 - Paired emphasis is detected per line with a look-alike of CommonMark's flanking rule, not Obsidian's own parser. Exotic nesting (`*a **b* c**`) may therefore be escaped where Obsidian would have rendered it. Escape it back, or turn *Disable italics* off.
-- YAML frontmatter is not skipped: inline `tags: [C++, STL]` gets escaped and breaks the property. Keep frontmatter tags in block style.
+- YAML frontmatter is skipped by both typing and repair: `tags: [C++, STL]` stays valid. If an older version already broke it, *Clean up over-escaping* repairs the property block.
 - Vault-wide repair scans every Markdown file, including any backup folder you keep inside the vault.
 - Writing raw HTML such as `<div style="...">`? Turn the protection off first.
 
@@ -124,11 +135,21 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 | `_` | `\_` | 只在**不属于标识符**时转义；`my_var`、`_private`、`__init__`、`MAX_SIZE` 原样保留 |
 | `\` | `\\` | 反斜杠按字面显示，不再吞字符 |
 | `==` | `\==` | `===` 仍触发高亮，想高亮时照常用 |
-| `#` | `\#` | **由后面那个字符决定**：`# 标题`、`## 标题`、`###` 后面是空格或行尾 → 保持为标题；`#include`、`#define`、`#pragma once`、`#标签` 后面不是空格 → 转义，避免被收进标签库 |
+| `#` | `\#` | **只拦那 14 个预处理指令词**：`#include`、`#define`、`#pragma once` 写成 `\#…`，不进标签库。`# 标题` 照常是标题；`#popcount`、`#笔记` 这类**真标签原样保留**——可以点、可以删、可以随便改 |
 
-围栏代码块（``` / ~~~）与行内代码内一律不处理；粘贴进正文的内容走同一套规则。
+围栏代码块（``` / ~~~）、行内代码与 YAML 属性块内一律不处理；粘贴进正文的内容走同一套规则。
 
 **14 个指令词：** `include` `import` `define` `undef` `pragma` `line` `error` `warning` `ifdef` `ifndef` `endif` `elif` `else` `if`
+
+### 把 `#` 的控制权还给你
+
+1.13 的规则是「`#` 后面不是空格就转义」，一刀切，真标签也一起被拦；而且内容变化检测每次都会重扫整行，你手动删掉的反斜杠在敲下一个字符时又被补回来——删不掉，也没法自己调整。1.14 把这四点补齐：
+
+- **转义范围下拉框**（默认「仅预处理指令」）：不转义 / 仅预处理指令 / 全部（旧行为）。
+- **白名单**：一行一个词（`builtin_popcountll`、`popcount`……），任何档位下都不转义。
+- **手动删除会被记住**：你把 `\#popcount` 改回 `#popcount`，插件就学会这个词，之后不再补回来。想恢复旧行为，关掉「尊重手动删除的反斜杠」。
+- **命令「放行光标所在的 #词」**：一步到位——就地删掉反斜杠 + 永久放行该词。
+- **「清理过度转义」新增两项**：`\#popcount` → `#popcount`（指令词仍保持转义），以及修好被写坏的属性块 `tags: \[C++, STL]` → `tags: [C++, STL]`。
 
 ## 命令
 
@@ -143,8 +164,9 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 | 转义选区中的 Markdown 触发符号 | 只处理选中文字 |
 | 从最近备份还原当前文件 | 回滚到最新备份 |
 | 选择笔记还原（打开设置） | 跳到还原面板 |
-| 清理过度转义：还原被改坏强调 / 标题 / 待办的本笔记 | 把 `\#`→`#`、`\*\*粗体\*\*`→`**粗体**`、`- \[ ]`→`- [ ]`、成对 `\==`→`==` 在本笔记里还原 |
+| 清理过度转义：还原被改坏的标签 / 强调 / 标题 / 待办（本笔记） | 把 `\#popcount`→`#popcount`（指令词仍保持转义）、`\#`→`#` 标题、`\*\*粗体\*\*`→`**粗体**`、`- \[ ]`→`- [ ]`、成对 `\==`→`==`、以及被写坏的 `tags: \[C++, STL]` 在本笔记里还原 |
 | 清理过度转义：还原整个库 | 同上，整库执行，带确认弹窗且先备份 |
+| 放行光标所在的 #词（永不转义） | 就地删掉反斜杠，并把该词永久加入放行名单 |
 
 修复是幂等的（`\<` 不会变成 `\\<`），跳过代码块，`a < b` 不受影响。每次修复写盘前，先生成 `<原名>.md.bak-时间戳` 副本。
 
@@ -152,7 +174,7 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 
 **输入保护** —— 总开关、`<`、`[`、保留链接语法、跳过围栏代码块、跳过行内代码、粘贴时转义。默认全开。
 
-**Markdown 抑制** —— 指令词不当标签、禁用斜体（保留列表圆点）、禁用下划线斜体、仅 `===` 高亮、反斜杠字面化。默认全开。
+**Markdown 抑制** —— 井号处理总开关、井号转义范围（默认「仅预处理指令」）、井号白名单、尊重手动删除的反斜杠、手动放行的词（带清空按钮）、禁用斜体（保留列表圆点）、禁用下划线斜体、仅 `===` 高亮、反斜杠字面化。
 
 **修复** —— 修复前备份（开）、打开笔记时自动修复（关，因为会写盘）。
 
@@ -166,7 +188,7 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 - 转义会改写笔记源码——每个字符多一个 `\`。渲染结果不变，但原文可读性下降。
 - 「反斜杠字面化」开启时，手动打的 `\<` 会失效——写两个反斜杠，或临时关掉该设置。
 - 成对强调是按行用「近似 CommonMark 左右侧翼规则」判定的，不是 Obsidian 自己的解析器。像 `*a **b* c**` 这种跨界嵌套，可能被转义掉而 Obsidian 本可正常渲染；把它手动改回来，或关掉「禁用斜体」。
-- YAML frontmatter 不跳过：行内写法 `tags: [C++, STL]` 会被转义导致属性损坏，请用块状写法。
+- YAML frontmatter 现在会被跳过：`tags: [C++, STL]` 不再被改写；若旧版本已经写坏，跑一次「清理过度转义」即可修好属性块。
 - 整库修复会扫描库里每一个 Markdown 文件，包括你放在库内的备份目录。
 - 若你要特意写裸 HTML（如 `<div style="...">`），先用切换命令关掉保护。
 
@@ -178,6 +200,11 @@ Markdown 给很多 C++ 天天在用的符号赋予了第二重含义。
 
 ## Changelog / 更新日志
 
+- **1.14.0** — `#` is yours again. Four changes, all pointed at the same complaint: *forced transcription with no way to delete it or adjust it.*
+  1. **Scope dropdown** replaces the one-size rule. Default *Directives only*: the 14 preprocessor words get `\#`, everything else — including real tags like `#popcount`, `#笔记`, `#builtin_popcountll` — is left alone, clickable and deletable. *Everything* restores the 1.13 behaviour; *Do not escape* leaves `#` entirely to you.
+  2. **Whitelist** (one word per line) and a new command *Release the `#word` at the cursor*, so you can adjust per-word without touching the global setting.
+  3. **Manual deletion sticks.** The change handler now compares the line against its previous frame: if you removed a backslash yourself, that word is remembered and never re-escaped. Previously it was re-added on the very next keystroke.
+  4. **Clean up over-escaping** gained two conversions it was missing: `\#popcount` → `#popcount` (directives deliberately stay escaped) and repair of broken YAML frontmatter (`tags: \[C++, STL]` → `tags: [C++, STL]`). Frontmatter is now skipped by typing, pasting and repair alike, so the property block can no longer be corrupted.
 - **1.13.0** — one rule for both markers: **look at the character after them.** `#` followed by a space (or end of line) is a heading and stays untouched — that is why `# 标题` renders at full size again. `#` followed by anything else is escaped, so `#include`, `#define`, `#pragma once` and `#tag` never reach the tag pane. Likewise `*` followed by a non-space is always escaped (`int** pp`, `a*b*c`), while a line-leading `* ` is a list bullet. Also fixed the directive check that only ever inspected the first `#` run on a line, so `## #include 详解` was missed.
 - **1.12.1** — restored asterisk escaping everywhere: 1.11.0 had let *paired* asterisks through, which broke `int** pp` and `char** argv`. Underscores are escaped only where they are not part of an identifier, so `_private` and `__init__` survive.
 - **1.12.0** — added the opposite direction: **Clean up over-escaping**, for notes earlier versions wrote into. It restores `\# Heading` → `# Heading`, `\*\*bold\*\*` → `**bold**`, `- \[ ]` → `- [ ]` and paired `\==` → `==`, per note or per vault, with a backup first. It is deliberately conservative: literal backslashes that are meant as C++ — `ListNode\* p`, `O(n\*n!)`, `minp\[p \* i]`, a lone `y % 4 \== 0` — are left exactly as they are.

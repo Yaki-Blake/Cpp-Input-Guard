@@ -20,9 +20,13 @@
  *
  * 【D】Markdown 语法抑制（斜体、高亮、标签）：
  *      预处理指令（`#include` `#define` `#pragma` `#ifdef` `#endif` 等）补 `\#`，
- *      不再进入标签库；`#` 本身与 `# 标题`、`#标签` 一律原样显示；
+ *      不再进入标签库；`# 标题`、真标签 `#popcount` 一律原样显示，
+ *      并且**用户手动删掉的反斜杠不会被补回来**（1.14.0）；
  *      `==` 不触发高亮（仅 `===` 触发）；`*` / `_` 不再触发行内强调，
  *      行首「* + 空格」仍保留为列表圆点；`\` 按字面显示。
+ *
+ * 【E】YAML frontmatter：属性块是数据不是正文语法，输入、粘贴、修复三条路径
+ *      全部跳过；「清理过度转义」负责把旧版本写坏的 `tags: \[C++, STL]` 修回来。
  *
  * 提供「一键修复」把存量笔记里的上述符号一次性转义，
  * 代码块与行内代码内部一律跳过，保持代码原样。
@@ -54,7 +58,11 @@ const DEFAULT_SETTINGS = {
 	skipFencedBlocks: true,      // 跳过 ``` / ~~~ 围栏代码块
 	skipInlineCode: true,        // 跳过 `行内代码`
 	preserveLinks: true,         // 保留 [文字](地址) 与 [[双链]] 语法
-	protectHashDirectives: true, // 只对「# + 指令词」补 \#；# 本身永不转义
+	protectHashDirectives: true, // 井号处理总开关（转义范围见 hashEscapeScope）
+	hashEscapeScope: 'directives', // 井号转义范围：none 全放行 / directives 仅指令词 / all 旧行为
+	hashWhitelist: '',             // 每行一个词：这些 #词 在任何模式下都不转义
+	releasedHashWords: [],         // 用户手动删过反斜杠的 #词，自动记住并永久放行
+	respectManualUnescape: true,   // 手动删掉的反斜杠不再被插件补回来
 	disableItalic: true,         // 输入 * 即写 \*，仅行首「* + 空格」还原为列表圆点
 	disableUnderscoreItalic: true, // 词边界的 _ 即写 \_，禁用下划线斜体
 	literalBackslash: true,      // 输入 \ 写 \\，反斜杠按字面显示、不再吞掉字符
@@ -119,6 +127,39 @@ function isInsideInlineCode(lineText, ch) {
 }
 
 /* ================================================================
+ * 一·五、YAML frontmatter 区间
+ * ================================================================
+ *
+ * 属性块里的 `tags: [C++, STL]` 与 `#标签` 属于**数据**，不是正文语法。
+ * 早先版本会把它一起转义，结果属性直接坏掉、标签芯片显示成 `\#cpp`。
+ * 现在正向修复与输入拦截一律跳过 frontmatter；反向清理专门负责把它修回来。
+ *
+ * 判定按 YAML 的规矩：第一行必须正好是 `---`，且后面存在闭合的
+ * `---` / `...`；找不到闭合就认为这不是 frontmatter（不猜）。
+ */
+const FM_OPEN_RE = /^---[ \t]*$/;
+const FM_CLOSE_RE = /^(?:---|\.\.\.)[ \t]*$/;
+
+// 返回属性块的内容行区间 [1, end)，end 是闭合行的下标；不是 frontmatter 则返回 null
+function frontmatterRange(lines) {
+	if (lines.length < 2 || !FM_OPEN_RE.test(lines[0])) return null;
+	for (let i = 1; i < lines.length; i++) {
+		if (FM_CLOSE_RE.test(lines[i])) return [1, i];
+	}
+	return null;
+}
+
+// 编辑器版本：光标所在行是否落在属性块里
+function isFrontmatterLine(editor, lineIndex) {
+	if (lineIndex === 0) return false;
+	if (!FM_OPEN_RE.test(editor.getLine(0))) return false;
+	for (let i = 1; i <= lineIndex; i++) {
+		if (FM_CLOSE_RE.test(editor.getLine(i))) return false;
+	}
+	return true;
+}
+
+/* ================================================================
  * 二、文档修复：把会被当作 HTML / 链接语法的括号转义掉
  * ================================================================ */
 
@@ -149,6 +190,54 @@ const HTML_LIKE_LT = /(\\?)<(?![\s\d=])/g;
 // 否则本来就不成标签，无需处理（a#b、网址锚点、[[笔记#标题]] 都不受影响）。
 // 已转义的 `\#include` 中 `#` 前是反斜杠，天然幂等，不会被二次处理。
 const HASH_RUN = /(^|\s)(#+)/g;
+
+// 与 HASH_RUN 的区别：允许前面是反斜杠，且不要求前置空白。
+// 专给「放行光标所在 #词」用 —— 光标停在 `\#popcount` 上时也要认得出它。
+const TAG_RUN = /\\?(#+)/g;
+
+// ---------------------------------------------------------------
+// 井号转义范围（1.14.0 新增）—— 解决「把标签也强制转义」的问题
+// ---------------------------------------------------------------
+// 1.13.0 的判定是「# 后面不是空格就转义」，一刀切。后果：正文里真正想写的
+// 标签 `#cpp`、`#笔记`、`#popcount`、`#builtin_popcountll` 全被写成 `\#…`，
+// 既进不了标签面板，也点不动；而且旧的 editor-change 逻辑每次改动都重扫整行，
+// 手动删掉的反斜杠会在下一个按键时被补回来 —— 这就是「强制」。
+//
+// 现在分三档：
+//   none        井号一律不动（完全交给用户）
+//   directives  只转义下面这 14 个预处理指令词（默认）
+//   all         旧行为：# 后跟非空格就转义（白名单与手动放行仍优先）
+//
+// 白名单（设置里可填，一行一个词）与「手动删过反斜杠的词」在任何档位都放行。
+const HASH_ESCAPE_SCOPES = ['none', 'directives', 'all'];
+
+// 14 个 C/C++ 预处理指令词（README 里承诺的那一份）
+const HASH_DIRECTIVE_WORDS = [
+	'include', 'import', 'define', 'undef', 'pragma', 'line', 'error',
+	'warning', 'ifdef', 'ifndef', 'endif', 'elif', 'else', 'if',
+];
+const HASH_DIRECTIVE_SET = new Set(HASH_DIRECTIVE_WORDS);
+
+// Obsidian 认可的标签字符：字母（含中文）、数字、下划线、连字符、斜杠
+const TAG_WORD_AT = /^[\p{L}\p{N}_\-\/]+/u;
+
+function tagWordAt(text, pos) {
+	const m = text.slice(pos).match(TAG_WORD_AT);
+	return m ? m[0] : '';
+}
+
+// 白名单文本 → 小写集合（忽略空行与行内注释）
+function parseWordList(text) {
+	const set = new Set();
+	if (!text) return set;
+	String(text)
+		.split(/\r?\n/)
+		.forEach((raw) => {
+			const w = raw.trim().replace(/^#/, '').trim();
+			if (w) set.add(w.toLowerCase());
+		});
+	return set;
+}
 
 // 星号：一律转义；行首「* + 空格」的列表圆点在调用处单独豁免
 const STAR_ANY = /(\\?)\*/g;
@@ -433,9 +522,34 @@ function escapeSquareBrackets(segment, counter, preserveLinks) {
 	});
 }
 
+/*
+ * 一串 `#+` 到底要不要转义 —— 唯一入口，输入拦截与批量修复共用。
+ *
+ * 依次判定（前面命中即放行，不再往下走）：
+ *   1. 后跟空格或行尾            → 标题标记，永不转义
+ *   2. 该词在「手动放行」名单里  → 用户删过反斜杠 / 加过白名单，永不转义
+ *   3. scope = none             → 什么都不转义
+ *   4. scope = directives       → 只有 14 个预处理指令词转义
+ *   5. scope = all              → 旧行为：后跟非空格就转义（1、2 仍优先）
+ *
+ * runStart 指向串首的 `#`，len 是串长；返回 true 表示需要写成 `\#…`。
+ */
+function hashRunNeedsEscape(text, runStart, len, o) {
+	const after = text.charAt(runStart + len);
+	if (after === '' || after === ' ' || after === '\t') return false;
+
+	const word = tagWordAt(text, runStart + len);
+	const lower = word ? word.toLowerCase() : '';
+	if (lower && o.hashAllowSet && o.hashAllowSet.has(lower)) return false;
+
+	// 只有指令词才需要转义；`#(`、`#-` 这类不成词的已在 tagWordAt 里为空
+	if (o.hashScope === 'directives') return HASH_DIRECTIVE_SET.has(lower);
+	// all：忠实保留 1.13 的行为 —— 后跟非空格就转义
+	return o.hashScope === 'all';
+}
+
 // 逐段处理一行：反引号包裹的段原样保留，其余段执行转义
-function escapeOutsideInlineCode(line, counter, opts) {
-	const o = opts || {};
+function escapeOutsideInlineCode(line, counter, opts) {	const o = opts || {};
 
 	const parts = line.split(/(`+[^`]*`+)/g); // 偶数索引 = 非代码段
 
@@ -466,11 +580,11 @@ function escapeOutsideInlineCode(line, counter, opts) {
 		//
 		// 不再按偏移特判「行首 # 串」：判定已由「后跟空格」统一处理，
 		// `## #include 详解` 前两个 # 后跟空格自然放行，第三个后跟字母自然转义。
-		if (o.hashDirectives) {
+		if (o.hashDirectives && o.hashScope !== 'none') {
 			seg = seg.replace(HASH_RUN, (match, pre, hashes, off) => {
 				if (off === 0 && i > 0) return match;
-				const after = seg.charAt(off + pre.length + hashes.length);
-				if (after === "" || after === " " || after === "\t") return match;
+				const runStart = off + pre.length;
+				if (!hashRunNeedsEscape(seg, runStart, hashes.length, o)) return match;
 				counter.n++;
 				return pre + '\\' + hashes;
 			});
@@ -529,6 +643,8 @@ function repairText(text, options) {
 			escapeSquare: true,
 			preserveLinks: true,
 			hashDirectives: true,
+			hashScope: 'directives',
+			hashAllowSet: new Set(),
 			highlight: true,
 			italic: true,
 			underscore: true,
@@ -540,8 +656,16 @@ function repairText(text, options) {
 	const out = new Array(lines.length);
 	let openFence = null;
 
+	// 属性块整块跳过：里面的 tags / 列表是数据，不是正文语法
+	const fm = frontmatterRange(lines);
+
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
+
+		if (fm && i >= fm[0] && i < fm[1]) {
+			out[i] = line;
+			continue;
+		}
 
 		// 围栏行本身不改，只切换状态
 		const c = matchFence(line);
@@ -562,6 +686,35 @@ function repairText(text, options) {
 	}
 
 	return { text: out.join('\n'), count: counter.n };
+}
+
+/*
+ * 修复被转义坏的 YAML frontmatter（早先版本把属性块也一起转义了）。
+ *
+ * 只在「第一行是 --- 且存在闭合行」时执行，逐行处理属性块内容：
+ *   `tags: [C++, STL]`   ← `tags: \[C++, STL]`
+ *   `aliases: \<x>`      ← 还原尖括号
+ *   `#标签` 形式的值      ← `\#cpp` → `#cpp`
+ * 属性块里的反斜杠没有别的合法用途（YAML 不用反斜杠做转义前缀的常见写法，
+ * 真要写正则也应放进代码块），所以这里可以放心成对还原。
+ */
+function unrepairFrontmatter(lines, counter) {
+	const fm = frontmatterRange(lines);
+	if (!fm) return false;
+	let changed = false;
+	for (let i = fm[0]; i < fm[1]; i++) {
+		const line = lines[i];
+		if (line.indexOf('\\') === -1) continue;
+		// 只删「反斜杠 + Markdown 触发符号」这一种组合；本身成对的反斜杠不动，
+		// 免得把 `path: C:\\temp` 这类数据改坏。
+		const next = line.replace(/(?<!\\)\\([<>*_\[\]#=~`])/g, '$1');
+		if (next !== line) {
+			counter.n += (line.match(/(?<!\\)\\[<>*_\[\]#=~`]/g) || []).length;
+			lines[i] = next;
+			changed = true;
+		}
+	}
+	return changed;
 }
 
 /* ================================================================
@@ -718,8 +871,44 @@ function unrepairHighlightPairs(line, counter) {
 	return line.replace(re, (m) => m.replace(/\\/g, ''));
 }
 
+/*
+ * 还原被转义的「标签 / 指令」井号：`\#popcount` → `#popcount`。
+ *
+ * 只还原**不是预处理指令**的那些词，于是：
+ *   `\#include`、`\#define`、`\#pragma`  保持转义（它们本就不该进标签库）
+ *   `\#cpp`、`\#笔记`、`\#builtin_popcountll`  还原成真标签（可点击、可删除）
+ * 白名单与「手动放行」里的词无论指令与否都还原 —— 那是用户明确表过态的。
+ *
+ * scope 为 all 时不做这项还原：那是用户选择的旧策略（# 后非空格一律转义），
+ * 还原会在下一次编辑时被立刻补回来，反而制造混乱。
+ */
+function unrepairHashRuns(line, counter, o) {
+	if (line.indexOf('\\#') === -1) return line;
+	return line.replace(/\\(#+)/g, (match, hashes, off) => {
+		const runStart = off + match.length;
+		const after = line.charAt(runStart);
+		if (after === '' || after === ' ' || after === '\t') return match; // 标题，交给规则 1
+		const word = tagWordAt(line, runStart);
+		if (!word) return match;
+		const lower = word.toLowerCase();
+		const allowed = (o.hashAllowSet && o.hashAllowSet.has(lower)) || false;
+		if (!allowed) {
+			if (o.hashScope === 'all') return match;
+			if (o.hashScope === 'directives' && HASH_DIRECTIVE_SET.has(lower)) return match;
+		}
+		counter.n++;
+		return hashes;
+	});
+}
+
 // 逐行还原
-function unrepairLine(line, counter) {
+function unrepairLine(line, counter, o) {
+	const opts = o || { hashScope: 'directives', hashAllowSet: new Set() };
+	// 0. 被转义的标签词（非指令）—— 用户要的是「能删、能点」
+	//    还原后同一行继续跑后面的规则，不提前 return。
+	const afterHash = unrepairHashRuns(line, counter, opts);
+	line = afterHash;
+
 	// 1. 标题
 	const h = line.match(UNREPAIR_HEADING_RE);
 	if (h) {
@@ -752,11 +941,15 @@ function unrepairLine(line, counter) {
  * 围栏代码块内部整行跳过（与正向修复一致）。
  * 行内代码段（`...`）不参与，避免把代码里的字面反斜杠删掉。
  */
-function unrepairText(text) {
+function unrepairText(text, options) {
+	const o = Object.assign({ hashScope: 'directives', hashAllowSet: new Set() }, options || {});
 	const counter = { n: 0 };
 	const lines = text.split('\n');
 	const out = new Array(lines.length);
 	let openFence = null;
+
+	// 属性块单独走一条规则：早先版本把 `tags: [C++, STL]` 也转义了
+	unrepairFrontmatter(lines, counter);
 
 	for (let i = 0; i < lines.length; i++) {
 		const line = lines[i];
@@ -776,7 +969,7 @@ function unrepairText(text) {
 		// 行内代码段原样保留，只处理段外
 		const parts = line.split(/(`+[^`]*`+)/g);
 		for (let k = 0; k < parts.length; k += 2) {
-			parts[k] = unrepairLine(parts[k], counter);
+			parts[k] = unrepairLine(parts[k], counter, o);
 		}
 		out[i] = parts.join('');
 	}
@@ -834,6 +1027,9 @@ class BracketShieldPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
+		// 井号「手动删除」检测：按行缓存上一帧内容（换文件即清空）
+		this.hashLineCache = new Map();
+
 		this.addSettingTab(new BracketShieldSettingTab(this.app, this));
 
 		/* --- 外观：实时预览下隐藏围栏行，卸载时清掉 body 上的类名与变量 --- */
@@ -843,10 +1039,10 @@ class BracketShieldPlugin extends Plugin {
 		/* --- 命令 0：清理过度转义（旧版本留下的坏数据） --- */
 		this.addCommand({
 			id: 'unrepair-current-note',
-			name: '清理过度转义：还原被改坏强调 / 标题 / 待办的本笔记',
+			name: '清理过度转义：还原被改坏的标签 / 强调 / 标题 / 待办（本笔记）',
 			editorCallback: async (editor) => {
 				const before = editor.getValue();
-				const { text, count } = unrepairText(before);
+				const { text, count } = unrepairText(before, this.repairOptions());
 				if (count === 0) {
 					new Notice('当前笔记没有需要还原的过度转义');
 					return;
@@ -875,9 +1071,11 @@ class BracketShieldPlugin extends Plugin {
 						`将扫描本库全部 ${files.length} 个 Markdown 文件，` +
 						'还原被旧版本误转义的内容：\n\n' +
 						'· 行首 `\\#` / `\\##` 还原为标题 `#` / `##`\n' +
+						'· `\\#标签` 还原为可点击的 `#标签`（`\\#include` 这类指令保持转义）\n' +
 						'· `\\*\\*粗体\\*\\*` 还原为 `**粗体**`\n' +
 						'· `- \\[ ]` 还原为待办框 `- [ ]`\n' +
-						'· `\\==` 还原为 `==`\n\n' +
+						'· `\\==` 还原为 `==`\n' +
+						'· YAML 属性块里被写坏的 `tags: \\[C++, STL]` 还原为 `tags: [C++, STL]`\n\n' +
 						'**只会还原「整行确实是 Markdown 语法」的情形**：' +
 						'代码块、行内代码、以及正文里作为字面量出现的 `\\*`（如 `ListNode\\* p`、`O(n\\*n!)`）' +
 						'一律保留不动。\n\n' +
@@ -888,6 +1086,13 @@ class BracketShieldPlugin extends Plugin {
 					onConfirm: () => this.unrepairVault(files),
 				}).open();
 			},
+		});
+
+		/* --- 命令 0c：放行光标所在的 #词（手动调整，立即生效） --- */
+		this.addCommand({
+			id: 'release-hash-word',
+			name: '放行光标所在的 #词（永不转义）',
+			editorCallback: (editor) => this.releaseHashWordAt(editor),
 		});
 
 		/* --- 命令 1：输入拦截开关 --- */
@@ -1045,6 +1250,13 @@ class BracketShieldPlugin extends Plugin {
 			})
 		);
 
+		/* --- 井号缓存：换文件即清空，避免行号串台与无界增长 --- */
+		this.registerEvent(
+			this.app.workspace.on('file-open', () => {
+				if (this.hashLineCache) this.hashLineCache.clear();
+			})
+		);
+
 		/* --- 可选：打开笔记时自动修复 --- */
 		this.registerEvent(
 			this.app.workspace.on('file-open', (file) => {
@@ -1066,10 +1278,80 @@ class BracketShieldPlugin extends Plugin {
 			escapeSquare: this.settings.escapeSquareOnInput,
 			preserveLinks: this.settings.preserveLinks,
 			hashDirectives: this.settings.protectHashDirectives,
+			hashScope: this.hashScope(),
+			hashAllowSet: this.hashAllowSet(),
 			highlight: this.settings.highlightOnlyTriple,
 			italic: this.settings.disableItalic,
 			underscore: this.settings.disableUnderscoreItalic,
 		};
+	}
+
+	/* ---------- 井号放行名单：白名单 + 手动删过反斜杠的词 ---------- */
+
+	// 生效档位；老数据（1.13 及以前）没有这个键时，沿用当时的行为以免突然变样
+	hashScope() {
+		const v = this.settings.hashEscapeScope;
+		return HASH_ESCAPE_SCOPES.indexOf(v) !== -1 ? v : 'directives';
+	}
+
+	hashAllowSet() {
+		const set = parseWordList(this.settings.hashWhitelist);
+		const released = this.settings.releasedHashWords || [];
+		for (let i = 0; i < released.length; i++) set.add(String(released[i]).toLowerCase());
+		return set;
+	}
+
+	// 记住用户手动删过反斜杠的词：写进设置，之后这个 #词 在任何模式下都不再被转义
+	async rememberReleasedWord(word) {
+		if (!word) return;
+		const lower = String(word).toLowerCase();
+		const list = this.settings.releasedHashWords || (this.settings.releasedHashWords = []);
+		if (list.some((w) => String(w).toLowerCase() === lower)) return;
+		list.push(lower);
+		await this.saveSettings();
+	}
+
+	/*
+	 * 光标停在某个 `#词`（或 `\#词`）上时：把这个词永久放行，并就地删掉反斜杠。
+	 * 删掉的那一下走编辑器事务，Ctrl+Z 一次就能撤销；名单本身想撤回就在设置里清空。
+	 */
+	async releaseHashWordAt(editor) {
+		const cursor = editor.getCursor();
+		const line = editor.getLine(cursor.line);
+
+		let found = null;
+		TAG_RUN.lastIndex = 0;
+		let m;
+		while ((m = TAG_RUN.exec(line)) !== null) {
+			const runStart = line.charAt(m.index) === '\\' ? m.index + 1 : m.index;
+			const runEnd = runStart + m[1].length;
+			const word = tagWordAt(line, runEnd);
+			if (!word) continue;
+			if (cursor.ch >= runStart && cursor.ch <= runEnd + word.length) {
+				found = { runStart, runEnd, word };
+			}
+		}
+		TAG_RUN.lastIndex = 0;
+
+		if (!found) {
+			new Notice('光标不在 #词 上');
+			return;
+		}
+
+		await this.rememberReleasedWord(found.word);
+		// 本次会话内的行缓存一并作废，避免拿旧的那帧做「手动删除」比对
+		this.hashLineCache.clear();
+
+		if (found.runStart > 0 && line.charAt(found.runStart - 1) === '\\') {
+			editor.replaceRange(
+				'',
+				{ line: cursor.line, ch: found.runStart - 1 },
+				{ line: cursor.line, ch: found.runStart }
+			);
+			new Notice(`已放行 #${found.word}（Ctrl+Z 可撤销这次删除）`);
+		} else {
+			new Notice(`已放行 #${found.word}`);
+		}
 	}
 
 	/* ---------- 粘贴拦截 ---------- */
@@ -1099,6 +1381,8 @@ class BracketShieldPlugin extends Plugin {
 		if (s.skipFencedBlocks && isInsideFencedBlock(editor, cursor.line, cursor.ch)) return;
 		const lineText = editor.getLine(cursor.line);
 		if (s.skipInlineCode && isInsideInlineCode(lineText, cursor.ch)) return;
+		// 粘进属性块：那是数据，不该被正文规则改写
+		if (isFrontmatterLine(editor, cursor.line)) return;
 
 		const cb = evt.clipboardData;
 		if (!cb) return;
@@ -1139,6 +1423,9 @@ class BracketShieldPlugin extends Plugin {
 
 		if (s.skipFencedBlocks && isInsideFencedBlock(editor, cursor.line, ch)) return;
 		if (s.skipInlineCode && isInsideInlineCode(lineText, ch)) return;
+		// 属性块里正在写的 `tags: [C++, STL]` 是数据：
+		// 早先版本在这里插入 \[ 会把属性直接写坏，现在整块不拦截。
+		if (isFrontmatterLine(editor, cursor.line)) return;
 
 		// ---- 空格：把行首刚写入的 `\*` 还原为列表圆点 `* ` ----
 		if (key === ' ') {
@@ -1291,18 +1578,20 @@ class BracketShieldPlugin extends Plugin {
 		editor.replaceSelection(' ');
 	}
 
-	/* ---------- 井号：后跟非空格时自动补 `\#` ---------- */
+	/* ---------- 井号：按档位补 `\#`，并且尊重用户的手动删除 ---------- */
 
 	/*
 	 * Obsidian 把 `#include` 这类「井号 + 非空白」识别为标签，且不限行首：
 	 * 说明文字里的「用 #include 引入头文件」同样会被收进标签库。
 	 *
-	 * 判定只看一件事：**# 后面跟不跟空格**。
-	 *   `# 标题`  `## 二级`  `###`   → 后跟空格或行尾 → 标题 → 不动
-	 *   `#include`  `#define`  `#pragma once` → 后跟字母 → 标签 → 补 `\#`
+	 * 判定交给 hashRunNeedsEscape（与批量修复共用同一套规则），三档：
+	 *   none        一律不动
+	 *   directives  只有 14 个预处理指令词补 `\#`（默认）
+	 *   all         旧行为：# 后跟非空格就补（白名单仍优先）
 	 *
-	 * 整串 `#+` 一起看：`## 标题` 里第二个 `#` 后面虽是 `#`，但那整串后跟空格，
-	 * 应整体判为标题。
+	 * 另外这一版新增「尊重手动删除」：上一帧该行是 `\#popcount`，这一帧变成
+	 * `#popcount`，说明是用户自己把反斜杠删了 —— 立刻把该词记进放行名单，
+	 * 之后无论哪一档都不会再给它补回去。这就是「可以删去、有自己调整空间」。
 	 */
 	handleEditorChange(editor) {
 		const s = this.settings;
@@ -1310,12 +1599,28 @@ class BracketShieldPlugin extends Plugin {
 		if (this.applyingHashFix) return; // 防止自己写入的内容再次触发
 
 		const cursor = editor.getCursor();
+		// 缓存按「文件 + 行号」建键：换笔记时行号会撞上，不能只按行
+		const file =
+			this.app.workspace.getActiveFile && this.app.workspace.getActiveFile();
+		const key = (file ? file.path : '') + '#' + cursor.line;
 		const line = editor.getLine(cursor.line);
-		if (line.indexOf('#') === -1) return;
+		if (line.indexOf('#') === -1) {
+			this.hashLineCache.set(key, line);
+			return;
+		}
 
 		if (s.skipFencedBlocks && isInsideFencedBlock(editor, cursor.line, cursor.ch)) return;
+		// 属性块内的 # 是标签数据，本来就该写成 `#cpp`，永不补反斜杠
+		if (isFrontmatterLine(editor, cursor.line)) return;
+		const scope = this.hashScope();
+		const allow = this.hashAllowSet();
 
-		// 遍历这一行里**所有**的 `#+` 串，找出第一个「后跟非空格、且未转义」的。
+		// 先吸收「用户手动删掉的反斜杠」，再决定是否补写
+		if (s.respectManualUnescape && scope !== 'none') {
+			this.absorbManualUnescape(key, line, allow);
+		}
+
+		// 遍历这一行里**所有**的 `#+` 串，找出第一个「需要转义且尚未转义」的。
 		// 不能只 match 一次：`## #include 详解` 里第一个串是行首的 `##`
 		// （后跟空格 → 标题，跳过），真正要转义的是后面那个 `#include`。
 		let target = -1;
@@ -1323,9 +1628,6 @@ class BracketShieldPlugin extends Plugin {
 		let m;
 		while ((m = HASH_RUN.exec(line)) !== null) {
 			const hashCh = m.index + m[1].length;
-			const after = line.charAt(hashCh + m[2].length);
-			// 后跟空格或行尾 → 标题标记，跳过
-			if (after === '' || after === ' ' || after === '\t') continue;
 			// 已转义（# 前是反斜杠）→ 跳过
 			if (hashCh > 0 && line.charAt(hashCh - 1) === '\\') continue;
 			// 行内代码里的 # → 跳过
@@ -1337,11 +1639,15 @@ class BracketShieldPlugin extends Plugin {
 			) {
 				continue;
 			}
+			if (!hashRunNeedsEscape(line, hashCh, m[2].length, { hashScope: scope, hashAllowSet: allow })) continue;
 			target = hashCh;
 			break;
 		}
 		HASH_RUN.lastIndex = 0;
-		if (target === -1) return;
+		if (target === -1) {
+			this.hashLineCache.set(key, line);
+			return;
+		}
 
 		this.applyingHashFix = true;
 		try {
@@ -1353,8 +1659,47 @@ class BracketShieldPlugin extends Plugin {
 			if (cursor.ch >= target) {
 				editor.setCursor({ line: cursor.line, ch: cursor.ch + 1 });
 			}
+			this.hashLineCache.set(key, editor.getLine(cursor.line));
 		} finally {
 			this.applyingHashFix = false;
+		}
+	}
+
+	/*
+	 * 对比「上一帧这一行的内容」与「现在这一行的内容」：
+	 * 凡是上一帧带反斜杠、现在不带反斜杠的 `#词`，都视为用户手动删过，
+	 * 记入放行名单。只在同一行的连续编辑之间比较，代价是两次小正则扫描。
+	 */
+	absorbManualUnescape(key, line, allow) {
+		const prev = this.hashLineCache.get(key);
+		// 只留最近 4000 行，防止长会话里无界增长
+		if (this.hashLineCache.size > 4000) this.hashLineCache.clear();
+		this.hashLineCache.set(key, line);
+		if (!prev || prev === line) return;
+
+		// 上一帧：哪些 #词 是带反斜杠的
+		const escapedBefore = new Set();
+		const reEsc = /\\(#+)([\p{L}\p{N}_\-\/]+)/gu;
+		let m;
+		while ((m = reEsc.exec(prev)) !== null) escapedBefore.add(m[2].toLowerCase());
+		if (escapedBefore.size === 0) return;
+
+		// 现在：哪些 #词 是裸写的（行首或空白之后，且前面没有反斜杠）
+		const bareNow = new Set();
+		HASH_RUN.lastIndex = 0;
+		while ((m = HASH_RUN.exec(line)) !== null) {
+			const runStart = m.index + m[1].length;
+			if (runStart > 0 && line.charAt(runStart - 1) === '\\') continue;
+			const word = tagWordAt(line, runStart + m[2].length);
+			if (word) bareNow.add(word.toLowerCase());
+		}
+		HASH_RUN.lastIndex = 0;
+
+		for (const lower of escapedBefore) {
+			if (allow.has(lower)) continue;
+			if (!bareNow.has(lower)) continue; // 要么仍带反斜杠，要么整个被删了
+			void this.rememberReleasedWord(lower);
+			allow.add(lower); // 本次调用内立即生效，避免马上又补回去
 		}
 	}
 
@@ -1550,7 +1895,7 @@ class BracketShieldPlugin extends Plugin {
 		try {
 			for (const file of files) {
 				const src = await this.app.vault.cachedRead(file);
-				const { text, count } = unrepairText(src);
+				const { text, count } = unrepairText(src, this.repairOptions());
 				if (count > 0) {
 					if (await this.backupBeforeWrite(file, src)) backedUp++;
 					await this.app.vault.modify(file, text);
@@ -1755,21 +2100,88 @@ class BracketShieldSettingTab extends PluginSettingTab {
 		});
 
 		new Setting(containerEl)
-			.setName('井号：后跟空格是标题，后跟字符才转义')
-			.setDesc(
-				'判定只看 # 后面跟不跟空格：' +
-					'「# 标题」「## 二级」「###」后跟空格或行尾，原样显示为标题；' +
-					'「#include」「#define」「#pragma once」「#标签」后跟字符，写成 \\#include 避免被收进标签库。' +
-					'不限行首，行文里提到的 #include 同样处理。'
-			)
+			.setName('启用井号处理')
+			.setDesc('总开关。关闭后插件完全不碰 #：不转义、也不清理已有的 \\#。')
 			.addToggle((t) =>
 				t
 					.setValue(this.plugin.settings.protectHashDirectives)
 					.onChange(async (v) => {
 						this.plugin.settings.protectHashDirectives = v;
 						await this.plugin.saveSettings();
+						this.display();
 					})
 			);
+
+		new Setting(containerEl)
+			.setName('井号：转义范围')
+			.setDesc(
+				'决定哪些「# + 字符」会被写成 \\#。' +
+					'「仅预处理指令」= 只拦 #include / #define / #pragma 这类，正文里写的 #标签 一律放行（推荐）；' +
+					'「全部」= 1.13 及以前的旧行为，# 后跟非空格就转义，真标签也会被拦；' +
+					'「不转义」= 井号完全交给用户。' +
+					'无论哪一档，「# 标题」这种后跟空格的都不受影响。'
+			)
+			.addDropdown((d) => {
+				d.addOption('none', '不转义（井号完全放行）');
+				d.addOption('directives', '仅预处理指令（推荐）');
+				d.addOption('all', '全部（旧行为：# 后跟非空格就转义）');
+				d.setValue(this.plugin.hashScope()).onChange(async (v) => {
+					this.plugin.settings.hashEscapeScope = v;
+					await this.plugin.saveSettings();
+					this.display();
+				});
+			});
+
+		new Setting(containerEl)
+			.setName('井号白名单（每行一个词）')
+			.setDesc(
+				'这些词在任何档位下都不会被转义。只写词、不带 #，例如 builtin_popcountll、__builtin_popcount、popcount。' +
+					'用于「仅预处理指令」档也拦不住的极端情况，或你希望某些指令词保持为标签。'
+			)
+			.addTextArea((t) => {
+				t.inputEl.rows = 4;
+				t.inputEl.cols = 30;
+				t.setPlaceholder('builtin_popcountll\n__builtin_popcount');
+				t.setValue(this.plugin.settings.hashWhitelist || '').onChange(async (v) => {
+					this.plugin.settings.hashWhitelist = v;
+					await this.plugin.saveSettings();
+				});
+			});
+
+		new Setting(containerEl)
+			.setName('尊重手动删除的反斜杠')
+			.setDesc(
+				'开启：你在正文里把 \\#popcount 手动改回 #popcount 时，插件会记住这个词并永久放行，' +
+					'不会在你敲下一个字符时又把反斜杠补回来。关闭：每次改动都按上面的档位重新判定。'
+			)
+			.addToggle((t) =>
+				t
+					.setValue(this.plugin.settings.respectManualUnescape)
+					.onChange(async (v) => {
+						this.plugin.settings.respectManualUnescape = v;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		const released = this.plugin.settings.releasedHashWords || [];
+		const releasedDesc = released.length
+			? `已手动放行 ${released.length} 个词：${released.join('、')}`
+			: '还没有手动放行的词。你在笔记里删掉 \\# 上的反斜杠后，词会自动出现在这里。';
+		const releasedSetting = new Setting(containerEl)
+			.setName('手动放行的词')
+			.setDesc(releasedDesc);
+		if (released.length) {
+			releasedSetting.addButton((b) =>
+				b
+					.setButtonText('清空')
+					.setTooltip('清空后这些词重新按上面的档位判定')
+					.onClick(async () => {
+						this.plugin.settings.releasedHashWords = [];
+						await this.plugin.saveSettings();
+						this.display();
+					})
+			);
+		}
 
 		new Setting(containerEl)
 			.setName('禁用斜体（星号一律转义）')
@@ -1834,8 +2246,11 @@ class BracketShieldSettingTab extends PluginSettingTab {
 			cls: 'setting-item-description',
 			text:
 				'已经写在笔记里的内容不会被输入拦截覆盖，需要先执行一次修复。' +
-				'修复范围：<、[、==、*、_，以及 C/C++ 预处理指令。# 本身不在修复范围内。' +
-				'按 Ctrl+P 打开命令面板，搜索「修复」：可修复当前笔记、整个库或选中内容。',
+				'修复范围：<、[、==、*、_，以及 C/C++ 预处理指令。' +
+				'# 只处理指令词，真标签（如 #popcount）与标题都不在修复范围内；' +
+				'YAML 属性块整块跳过。' +
+				'按 Ctrl+P 打开命令面板，搜索「修复」：可修复当前笔记、整个库或选中内容。' +
+				'想把旧版本误转义的标签还原回来，用「清理过度转义」。',
 		});
 
 		new Setting(containerEl)
